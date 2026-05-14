@@ -372,8 +372,33 @@
                 <!-- Settings -->
                 <section class="section" id="section-settings">
                     <div class="page-header"><h1 class="page-title">Settings</h1><p class="page-subtitle">Configure application</p></div>
-                    <div class="card"><div class="card-header"><span class="card-title"><i class="fas fa-envelope"></i> Validation</span></div><div class="card-body"><div class="toggle-group"><div><div class="toggle-label">Auto-validate imports</div><div class="toggle-desc">Validate when importing</div></div><label class="toggle"><input type="checkbox" id="autoValidate" checked><span class="toggle-slider"></span></label></div><div class="toggle-group"><div><div class="toggle-label">Block disposable</div><div class="toggle-desc">Reject temp emails</div></div><label class="toggle"><input type="checkbox" id="checkDisposable" checked><span class="toggle-slider"></span></label></div></div></div>
-                    <div class="card"><div class="card-header"><span class="card-title"><i class="fas fa-database"></i> Data</span></div><div class="card-body"><div class="btn-group"><button class="btn btn-secondary" onclick="createBackup()"><i class="fas fa-download"></i> Backup</button><button class="btn btn-secondary" onclick="document.getElementById('restoreFile').click()"><i class="fas fa-upload"></i> Restore</button><input type="file" id="restoreFile" accept=".json" style="display:none;" onchange="restoreBackup(event)"></div></div></div>
+                    
+                    <!-- Custom Fields -->
+                    <div class="card">
+                        <div class="card-header"><span class="card-title"><i class="fas fa-fields"></i> Custom Fields</span><button class="btn btn-primary btn-sm" onclick="openModal('addField')"><i class="fas fa-plus"></i> Add Field</button></div>
+                        <div class="card-body">
+                            <div id="customFieldsList">
+                                <div class="empty-state" style="padding:20px;"><p>No custom fields yet</p></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Contact Groups -->
+                    <div class="card">
+                        <div class="card-header"><span class="card-title"><i class="fas fa-users-cog"></i> Contact Groups</span><button class="btn btn-primary btn-sm" onclick="openModal('addGroup')"><i class="fas fa-plus"></i> New Group</button></div>
+                        <div class="card-body">
+                            <div id="groupsList">
+                                <div class="empty-state" style="padding:20px;"><p>No groups yet</p></div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header"><span class="card-title"><i class="fas fa-envelope"></i> Validation</span></div>
+                        <div class="card-body"><div class="toggle-group"><div><div class="toggle-label">Auto-validate imports</div><div class="toggle-desc">Validate when importing</div></div><label class="toggle"><input type="checkbox" id="autoValidate" checked><span class="toggle-slider"></span></label></div><div class="toggle-group"><div><div class="toggle-label">Block disposable</div><div class="toggle-desc">Reject temp emails</div></div><label class="toggle"><input type="checkbox" id="checkDisposable" checked><span class="toggle-slider"></span></label></div></div></div>
+                    <div class="card">
+                        <div class="card-header"><span class="card-title"><i class="fas fa-database"></i> Data</span></div>
+                        <div class="card-body"><div class="btn-group"><button class="btn btn-secondary" onclick="createBackup()"><i class="fas fa-download"></i> Backup</button><button class="btn btn-secondary" onclick="document.getElementById('restoreFile').click()"><i class="fas fa-upload"></i> Restore</button><input type="file" id="restoreFile" accept=".json" style="display:none;" onchange="restoreBackup(event)"></div></div></div>
                 </section>
             </div>
         </main>
@@ -386,13 +411,19 @@
 
     <div class="modal-overlay" id="modal-addList"><div class="modal"><div class="modal-header"><span class="modal-title">New Mail List</span><button class="modal-close" onclick="closeModal('addList')">&times;</button></div><div class="modal-body"><div class="form-group"><label class="form-label">Name</label><input type="text" class="form-input" id="listName"></div><div class="form-group"><label class="form-label">Title</label><input type="text" class="form-input" id="listTitle"></div><div class="form-group"><label class="form-label">Description</label><textarea class="form-textarea" id="listDescription"></textarea></div></div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('addList')">Cancel</button><button class="btn btn-primary" onclick="createMailList()">Create</button></div></div></div></div>
 
+    <!-- Custom Field Modal -->
+    <div class="modal-overlay" id="modal-addField"><div class="modal"><div class="modal-header"><span class="modal-title">Add Custom Field</span><button class="modal-close" onclick="closeModal('addField')">&times;</button></div><div class="modal-body"><div class="form-group"><label class="form-label">Field Name</label><input type="text" class="form-input" id="fieldName" placeholder="e.g. company_size, birthday"></div><div class="form-group"><label class="form-label">Type</label><select class="form-select" id="fieldType"><option value="text">Text</option><option value="number">Number</option><option value="date">Date</option><option value="boolean">Yes/No</option></select></div></div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('addField')">Cancel</button><button class="btn btn-primary" onclick="saveCustomField()">Save</button></div></div></div></div>
+
+    <!-- Group Modal -->
+    <div class="modal-overlay" id="modal-addGroup"><div class="modal"><div class="modal-header"><span class="modal-title">New Contact Group</span><button class="modal-close" onclick="closeModal('addGroup')">&times;</button></div><div class="modal-body"><div class="form-group"><label class="form-label">Group Name</label><input type="text" class="form-input" id="groupName" placeholder="e.g. Leads, Customers, VIP"></div><div class="form-group"><label class="form-label">Color</label><input type="color" class="form-input" id="groupColor" value="#6366f1"></div></div><div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal('addGroup')">Cancel</button><button class="btn btn-primary" onclick="saveGroup()">Create</button></div></div></div></div>
+
     <div class="toast-container" id="toastContainer"></div>
 
     <script>
-        let contacts=[],templates=[],mailLists=[];
+        let contacts=[],templates=[],mailLists=[],customFields=[],groups=[];
         document.addEventListener('DOMContentLoaded',()=>{loadData();setupNavigation();updateStats();});
-        function loadData(){contacts=JSON.parse(localStorage.getItem('contacts')||'[]');templates=JSON.parse(localStorage.getItem('emailTemplates')||'[]');if(!templates.length){templates=[{id:'tpl1',name:'Confirmation',subject:'Confirm',body:'Click to confirm:'},{id:'tpl2',name:'Welcome',subject:'Welcome!',body:'Thank you.'}];localStorage.setItem('emailTemplates',JSON.stringify(templates));}mailLists=JSON.parse(localStorage.getItem('mailLists')||'[]');renderContacts();renderTemplates();renderMailLists();}
-        function saveData(){localStorage.setItem('contacts',JSON.stringify(contacts));localStorage.setItem('emailTemplates',JSON.stringify(templates));localStorage.setItem('mailLists',JSON.stringify(mailLists));}
+        function loadData(){contacts=JSON.parse(localStorage.getItem('contacts')||'[]');templates=JSON.parse(localStorage.getItem('emailTemplates')||'[]');if(!templates.length){templates=[{id:'tpl1',name:'Confirmation',subject:'Confirm',body:'Click to confirm:'},{id:'tpl2',name:'Welcome',subject:'Welcome!',body:'Thank you.'}];localStorage.setItem('emailTemplates',JSON.stringify(templates));}mailLists=JSON.parse(localStorage.getItem('mailLists')||'[]');customFields=JSON.parse(localStorage.getItem('customFields')||'[]');groups=JSON.parse(localStorage.getItem('groups')||'[]');renderContacts();renderTemplates();renderMailLists();renderCustomFields();renderGroups();}
+        function saveData(){localStorage.setItem('contacts',JSON.stringify(contacts));localStorage.setItem('emailTemplates',JSON.stringify(templates));localStorage.setItem('mailLists',JSON.stringify(mailLists));localStorage.setItem('customFields',JSON.stringify(customFields));localStorage.setItem('groups',JSON.stringify(groups));}
         function setupNavigation(){document.querySelectorAll('.nav-item').forEach(item=>{item.addEventListener('click',()=>{showSection(item.dataset.section)});});}
         function showSection(section){document.querySelectorAll('.nav-item').forEach(item=>{item.classList.toggle('active',item.dataset.section===section);});document.querySelectorAll('.section').forEach(sec=>{sec.classList.toggle('active',sec.id==='section-'+section);});document.getElementById('sidebar')?.classList.remove('open');}
         function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
@@ -525,6 +556,64 @@
         function renderTemplates(){const list=document.getElementById('templateList');if(!templates.length){list.innerHTML='<div class="empty-state"><i class="fas fa-file-code"></i><h3>No templates</h3></div>';return;}list.innerHTML=templates.map(t=>'<div class="contact-item"><div class="contact-avatar"><i class="fas fa-file-alt"></i></div><div class="contact-info"><div class="contact-name">'+t.name+'</div><div class="contact-email">'+t.subject+'</div></div></div>').join('');document.getElementById('campaignTemplate').innerHTML='<option value="">Select Template</option>'+templates.map(t=>'<option value="'+t.id+'">'+t.name+'</option>').join('');}
         function saveTemplate(){const name=document.getElementById('tplName').value.trim(),subject=document.getElementById('tplSubject').value.trim(),body=document.getElementById('tplBody').value;if(!name){showToast('Name required','error');return;}templates.push({id:'tpl_'+Date.now(),name,subject,body});localStorage.setItem('emailTemplates',JSON.stringify(templates));closeModal('addTemplate');renderTemplates();showToast('Template saved!','success');}
         function renderMailLists(){const list=document.getElementById('mailListList');if(!mailLists.length){list.innerHTML='<div class="empty-state"><i class="fas fa-list"></i><h3>No lists</h3></div>';return;}list.innerHTML=mailLists.map(l=>'<div class="contact-item"><div class="contact-avatar"><i class="fas fa-envelope"></i></div><div class="contact-info"><div class="contact-name">'+l.title+'</div><div class="contact-email">'+(l.subscribers?.length||0)+' subscribers</div></div></div>').join('');}
+        
+        // ====== CUSTOM FIELDS ======
+        function renderCustomFields() {
+            const list = document.getElementById('customFieldsList');
+            if (!customFields.length) {
+                list.innerHTML = '<div class="empty-state" style="padding:20px;"><p>No custom fields yet</p></div>';
+                return;
+            }
+            list.innerHTML = customFields.map(f => '<div class="contact-item"><div class="contact-avatar"><i class="fas fa-tag"></i></div><div class="contact-info"><div class="contact-name">' + f.name + '</div><div class="contact-email">Type: ' + f.type + '</div></div><button class="btn btn-sm btn-ghost" onclick="deleteField(\'' + f.id + '\')"><i class="fas fa-trash"></i></button></div>').join('');
+        }
+        
+        function saveCustomField() {
+            const name = document.getElementById('fieldName').value.trim();
+            const type = document.getElementById('fieldType').value;
+            if (!name) { showToast('Field name required', 'error'); return; }
+            customFields.push({ id: 'field_' + Date.now(), name, type });
+            saveData();
+            renderCustomFields();
+            closeModal('addField');
+            showToast('Custom field added!', 'success');
+        }
+        
+        function deleteField(id) {
+            customFields = customFields.filter(f => f.id !== id);
+            saveData();
+            renderCustomFields();
+            showToast('Field deleted', 'success');
+        }
+        
+        // ====== GROUPS ======
+        function renderGroups() {
+            const list = document.getElementById('groupsList');
+            if (!groups.length) {
+                list.innerHTML = '<div class="empty-state" style="padding:20px;"><p>No groups yet</p></div>';
+                return;
+            }
+            list.innerHTML = groups.map(g => '<div class="contact-item"><div class="contact-avatar" style="background:' + g.color + '"><i class="fas fa-users"></i></div><div class="contact-info"><div class="contact-name">' + g.name + '</div><div class="contact-email">' + contacts.filter(c => c.groupId === g.id).length + ' contacts</div></div><button class="btn btn-sm btn-ghost" onclick="deleteGroup(\'' + g.id + '\')"><i class="fas fa-trash"></i></button></div>').join('');
+        }
+        
+        function saveGroup() {
+            const name = document.getElementById('groupName').value.trim();
+            const color = document.getElementById('groupColor').value;
+            if (!name) { showToast('Group name required', 'error'); return; }
+            groups.push({ id: 'grp_' + Date.now(), name, color });
+            saveData();
+            renderGroups();
+            closeModal('addGroup');
+            showToast('Group created!', 'success');
+        }
+        
+        function deleteGroup(id) {
+            groups = groups.filter(g => g.id !== id);
+            contacts.forEach(c => { if (c.groupId === id) c.groupId = null; });
+            saveData();
+            renderGroups();
+            renderContacts();
+            showToast('Group deleted', 'success');
+        }
         function createMailList(){const name=document.getElementById('listName').value.trim(),title=document.getElementById('listTitle').value.trim(),description=document.getElementById('listDescription').value.trim();if(!name||!title){showToast('Required fields','error');return;}mailLists.push({id:'list_'+Date.now(),name,title,description,subscribers:[],createdAt:new Date().toISOString()});saveData();renderMailLists();updateStats();closeModal('addList');showToast('List created!','success');}
         function findDuplicates(){const seen=new Map(),matchEmail=document.getElementById('matchEmail').checked;let duplicates=0;contacts.forEach(c=>{let key='';if(matchEmail)key=(c.email||'').toLowerCase().trim();if(key&&seen.has(key))duplicates++;else seen.set(key,c.id);});showToast(duplicates?'Found '+duplicates+' duplicates':'No duplicates','success');}
         function saveSMTP(){const config={host:document.getElementById('smtpHost').value,port:document.getElementById('smtpPort').value,username:document.getElementById('smtpUsername').value,password:document.getElementById('smtpPassword').value};localStorage.setItem('smtpConfig',JSON.stringify(config));showToast('SMTP saved!','success');}
