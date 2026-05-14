@@ -1,33 +1,8 @@
-# Dependencies
 node_modules/
-
-# Environment
+.next/
 .env
 .env.local
-.env.production
-
-# Logs
-logs
-*.log
-npm-debug.log*
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-
-# Build
 dist/
 build/
-
-# Test
-coverage/
-
-# Private
-*.key
-*.pem
-credentials.json
+*.log
+.DS_Store
