@@ -3,11 +3,13 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { PrismaClient } from '@prisma/client';
+import { v4 as uuidv4 } from 'uuid';
 
 import contactRouter from './controllers/contactController.js';
 import seoRouter from './controllers/seoController.js';
 import aiRouter from './controllers/aiController.js';
 import emailRouter from './controllers/emailController.js';
+import { setCurrentRequestId, setTenantContext, clearTenantContext } from './services/tenantIsolation.js';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -45,11 +47,22 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use((req, res, next) => {
+  const requestId = (req.headers['x-request-id'] as string) || uuidv4();
+  const tenantId = (req.headers['x-tenant-id'] as string) || req.query.tenantId as string;
+  
+  setCurrentRequestId(requestId);
+  if (tenantId) {
+    setTenantContext(requestId, { tenantId, userId: req.headers['x-user-id'] as string });
+  }
+  
+  res.setHeader('X-Request-ID', requestId);
+  
   const startTime = Date.now();
   res.on('finish', () => {
+    clearTenantContext(requestId);
     const duration = Date.now() - startTime;
     if (process.env.NODE_ENV !== 'test') {
-      console.log(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+      console.log(`${requestId.slice(0,8)} ${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
     }
   });
   next();
@@ -99,24 +112,24 @@ app.get('/api/ping', (req, res) => {
 
 app.get('/api/stats', async (req, res) => {
   try {
-    const { tenantId } = req.query;
+    const tenantId = (req.headers['x-tenant-id'] as string) || req.query.tenantId as string;
     
     if (!tenantId) {
-      res.status(400).json({ error: 'tenantId required' });
+      res.status(400).json({ error: 'X-Tenant-ID header or tenantId query param required' });
       return;
     }
 
     const [contacts, validContacts, campaigns, seoAudits, aiLogs, templates] = await Promise.all([
-      prisma.contact.count({ where: { tenantId: tenantId as string } }),
-      prisma.contact.count({ where: { tenantId: tenantId as string, validity: 'valid' } }),
-      prisma.emailCampaign.count({ where: { tenantId: tenantId as string } }),
-      prisma.seoAudit.count({ where: { tenantId: tenantId as string } }),
-      prisma.aiAgentLog.count({ where: { tenantId: tenantId as string } }),
-      prisma.emailCampaign.count({ where: { tenantId: tenantId as string, status: 'DRAFT' } })
+      prisma.contact.count({ where: { tenantId } }),
+      prisma.contact.count({ where: { tenantId, validity: 'valid' } }),
+      prisma.emailCampaign.count({ where: { tenantId } }),
+      prisma.seoAudit.count({ where: { tenantId } }),
+      prisma.aiAgentLog.count({ where: { tenantId } }),
+      prisma.emailCampaign.count({ where: { tenantId, status: 'DRAFT' } })
     ]);
 
     const tags = await prisma.contact.findMany({
-      where: { tenantId: tenantId as string },
+      where: { tenantId },
       select: { tags: true }
     });
     const allTags = new Map<string, number>();
