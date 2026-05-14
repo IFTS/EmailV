@@ -1,102 +1,50 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import OpenAI from 'openai';
 import { addEmailToQueue } from '../queue/emailWorker.js';
+import { 
+  generateStructuredEmailCampaign, 
+  generateSubjectLines,
+  segmentContacts,
+  analyzeEmailPerformance 
+} from '../services/aiStructuredOutputs.js';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY || ''
-});
-
-const CONTENT_TYPES = {
-  welcome: { system: 'Write a warm, welcoming onboarding email', category: 'onboarding' },
-  promotional: { system: 'Write a compelling promotional email with a clear offer', category: 'promotional' },
-  newsletter: { system: 'Write an engaging newsletter with valuable content', category: 'newsletter' },
-  announcement: { system: 'Write an exciting product/service announcement', category: 'announcement' },
-  followup: { system: 'Write a friendly follow-up email to nurture relationships', category: 'nurture' },
-  confirmation: { system: 'Write a clear confirmation email with details', category: 'transactional' },
-  reengagement: { system: 'Write a re-engagement email to win back inactive users', category: 'retention' },
-  survey: { system: 'Write a polite request for feedback or survey participation', category: 'feedback' }
-};
-
-const TONES = {
-  friendly: 'Use a warm, conversational tone that feels like a friend',
-  professional: 'Use a polished, business-appropriate tone',
-  casual: 'Use a relaxed, informal tone',
-  formal: 'Use a dignified, authoritative tone',
-  excited: 'Use an enthusiastic, energetic tone',
-  empathetic: 'Use a caring, understanding tone'
-};
-
-interface GenerateContentInput {
-  type: string;
-  tone: string;
-  context: string;
-  brandVoice?: string;
-  maxLength?: number;
-}
-
-interface CreateCampaignInput {
-  tenantId: string;
-  campaignName: string;
-  type: string;
-  tone: string;
-  context: string;
-  targetAudience?: string;
-  goal?: string;
-}
-
 router.post('/ai/generate-content', async (req: Request, res: Response) => {
   try {
-    const { type, tone, context, brandVoice, maxLength = 500 } = req.body as GenerateContentInput;
+    const { type, tone, context, brandVoice } = req.body;
     
     if (!type || !context) {
       res.status(400).json({ error: 'type and context required' });
       return;
     }
 
-    const typeConfig = CONTENT_TYPES[type] || CONTENT_TYPES.promotional;
-    const toneConfig = TONES[tone] || TONES.friendly;
-    
     const startTime = Date.now();
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: `${typeConfig.system}. ${toneConfig}. Keep the email under ${maxLength} words.` },
-        { role: 'user', content: `Context/Topic: ${context}${brandVoice ? `\n\nBrand Voice: ${brandVoice}` : ''}` }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.7,
-      max_tokens: 1500
-    });
+    const result = await generateStructuredEmailCampaign(context, type, tone || 'professional');
 
     const duration = Date.now() - startTime;
-    const content = JSON.parse(completion.choices[0]?.message?.content || '{}');
 
     await prisma.aiAgentLog.create({
       data: {
         tenantId: req.body.tenantId || 'system',
         action: 'generate_content',
         prompt: context,
-        response: JSON.stringify(content),
-        model: 'gpt-4o',
+        response: JSON.stringify(result),
+        model: 'gpt-4o-structured',
         status: 'completed',
-        tokens: completion.usage?.total_tokens || 0,
+        tokens: 0,
         duration,
-        cost: (completion.usage?.total_tokens || 0) * 0.00001
+        cost: duration * 0.001
       }
     });
 
     res.json({
       success: true,
-      content,
-      model: 'gpt-4o',
-      tokens: completion.usage?.total_tokens,
-      duration,
-      category: typeConfig.category
+      content: result,
+      model: 'gpt-4o-structured',
+      duration
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -105,68 +53,85 @@ router.post('/ai/generate-content', async (req: Request, res: Response) => {
 
 router.post('/ai/subject-line', async (req: Request, res: Response) => {
   try {
-    const { subject, body, count = 5 } = req.body;
+    const { content, count = 5 } = req.body;
     
-    if (!subject || !body) {
-      res.status(400).json({ error: 'subject and body required' });
+    if (!content) {
+      res.status(400).json({ error: 'content required' });
       return;
     }
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: `Generate ${count} alternative subject lines. Be creative but relevant.` },
-        { role: 'user', content: `Current subject: ${subject}\nEmail body preview: ${body.slice(0, 500)}` }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.8,
-      max_tokens: 500
-    });
-
-    const subjects = JSON.parse(completion.choices[0]?.message?.content || '{}');
+    const subjects = await generateSubjectLines(content, count);
 
     res.json({
       success: true,
-      subjects: subjects.subjectLines || [],
-      tokens: completion.usage?.total_tokens
+      subjects,
+      count: subjects.length
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
-router.post('/ai/send-time', async (req: Request, res: Response) => {
+router.post('/ai/segment', async (req: Request, res: Response) => {
   try {
-    const { tenantId, contactIds } = req.body;
+    const { tenantId, goal } = req.body;
     
+    if (!tenantId || !goal) {
+      res.status(400).json({ error: 'tenantId and goal required' });
+      return;
+    }
+
     const contacts = await prisma.contact.findMany({
-      where: { 
-        tenantId, 
-        id: { in: contactIds },
-        status: 'ACTIVE'
-      },
-      select: { id: true, email: true }
+      where: { tenantId, status: 'ACTIVE' },
+      take: 100,
+      select: { id: true, email: true, firstName: true, lastName: true, company: true, tags: true }
     });
 
-    const sendTimes: Record<string, string> = {};
-    
-    for (const contact of contacts) {
-      const domains = contact.email.split('@')[1]?.split('.');
-      const tld = domains?.[domains.length - 1];
-      
-      if (['com', 'net', 'org'].includes(tld)) {
-        sendTimes[contact.id] = '09:00:00';
-      } else if (['co', 'uk'].includes(tld)) {
-        sendTimes[contact.id] = '14:00:00';
-      } else {
-        sendTimes[contact.id] = '08:00:00';
-      }
-    }
+    const contactData = contacts.map(c => ({
+      email: c.email,
+      name: `${c.firstName} ${c.lastName}`.trim(),
+      company: c.company || undefined,
+      tags: c.tags || []
+    }));
+
+    const segmentation = await segmentContacts(contactData, goal);
 
     res.json({
       success: true,
-      sendTimes,
-      optimized: contacts.length
+      segments: segmentation.segments,
+      totalContacts: contacts.length
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/ai/analyze-performance', async (req: Request, res: Response) => {
+  try {
+    const { campaignId, openRate, clickRate } = req.body;
+    
+    if (!campaignId) {
+      res.status(400).json({ error: 'campaignId required' });
+      return;
+    }
+
+    const campaign = await prisma.emailCampaign.findUnique({ where: { id: campaignId } });
+    
+    if (!campaign) {
+      res.status(404).json({ error: 'Campaign not found' });
+      return;
+    }
+
+    const analysis = await analyzeEmailPerformance({
+      subject: campaign.subject,
+      body: campaign.body,
+      openRate,
+      clickRate
+    });
+
+    res.json({
+      success: true,
+      analysis
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -175,7 +140,7 @@ router.post('/ai/send-time', async (req: Request, res: Response) => {
 
 router.post('/ai/create-campaign', async (req: Request, res: Response) => {
   try {
-    const { tenantId, campaignName, type, tone, context, targetAudience, goal } = req.body as CreateCampaignInput;
+    const { tenantId, campaignName, type, tone, context, targetAudience, goal } = req.body;
     
     if (!tenantId || !campaignName || !context) {
       res.status(400).json({ error: 'tenantId, campaignName, and context required' });
@@ -183,9 +148,6 @@ router.post('/ai/create-campaign', async (req: Request, res: Response) => {
     }
 
     const startTime = Date.now();
-
-    const typeConfig = CONTENT_TYPES[type] || CONTENT_TYPES.promotional;
-    const toneConfig = TONES[tone] || TONES.friendly;
 
     const log = await prisma.aiAgentLog.create({
       data: {
@@ -198,52 +160,33 @@ router.post('/ai/create-campaign', async (req: Request, res: Response) => {
 
     const contacts = await prisma.contact.findMany({
       where: { tenantId, validity: 'valid', status: 'ACTIVE' },
-      take: 100,
-      select: { id: true, firstName: true, lastName: true, email: true, company: true }
+      take: 100
     });
 
-    const audienceContext = targetAudience 
-      ? `\nTarget audience: ${targetAudience}` 
-      : contacts.length > 0 
-        ? `\nContacts: ${contacts.map(c => c.firstName).slice(0, 5).join(', ')}` 
-        : '';
-    
-    const goalContext = goal ? `\nGoal: ${goal}` : '';
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: [
-        { role: 'system', content: `${typeConfig.system}. ${toneConfig}. Output JSON with subject, preheader, body, and html fields. Use personalization tokens {{firstName}}` },
-        { role: 'user', content: `Campaign name: ${campaignName}\nContext: ${context}${audienceContext}${goalContext}` }
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.7,
-      max_tokens: 2000
-    });
-
-    const duration = Date.now() - startTime;
-    const emailContent = JSON.parse(completion.choices[0]?.message?.content || '{}');
+    const result = await generateStructuredEmailCampaign(context, type || 'promotional', tone || 'professional');
 
     const campaign = await prisma.emailCampaign.create({
       data: {
         tenantId,
         name: campaignName,
-        subject: emailContent.subject || campaignName,
-        preheader: emailContent.preheader || '',
-        body: emailContent.body || emailContent.text || context,
-        html: emailContent.html || `<body><p>${emailContent.body || context}</p></body>`,
+        subject: result.subject,
+        preheader: result.preheader,
+        body: result.body,
+        html: result.html,
         status: 'DRAFT'
       }
     });
 
+    const duration = Date.now() - startTime;
+
     await prisma.aiAgentLog.update({
       where: { id: log.id },
       data: {
-        response: JSON.stringify({ campaignId: campaign.id, subject: emailContent.subject }),
+        response: JSON.stringify({ campaignId: campaign.id, subject: result.subject }),
         status: 'completed',
-        tokens: completion.usage?.total_tokens || 0,
+        tokens: 0,
         duration,
-        cost: (completion.usage?.total_tokens || 0) * 0.00001
+        cost: duration * 0.001
       }
     });
 
@@ -255,8 +198,8 @@ router.post('/ai/create-campaign', async (req: Request, res: Response) => {
         subject: campaign.subject,
         status: campaign.status
       },
+      content: result,
       contactsProcessed: contacts.length,
-      tokens: completion.usage?.total_tokens,
       duration
     });
   } catch (error: any) {
@@ -290,13 +233,7 @@ router.post('/ai/send-campaign', async (req: Request, res: Response) => {
     const sender = fromEmail || 'onboarding@resend.dev';
 
     for (const contact of contacts) {
-      const personalizedBody = (campaign.body || '')
-        .replace(/{{firstName}}/gi, contact.firstName || '')
-        .replace(/{{lastName}}/gi, contact.lastName || '')
-        .replace(/{{email}}/gi, contact.email || '')
-        .replace(/{{company}}/gi, contact.company || '');
-      
-      const personalizedHtml = (campaign.html || '')
+      const personalizedHtml = (campaign.html || campaign.body || '')
         .replace(/{{firstName}}/gi, contact.firstName || '')
         .replace(/{{lastName}}/gi, contact.lastName || '')
         .replace(/{{email}}/gi, contact.email || '')
@@ -307,17 +244,15 @@ router.post('/ai/send-campaign', async (req: Request, res: Response) => {
         campaignId,
         recipientEmail: contact.email,
         subject: campaign.subject,
-        body: campaign.html || campaign.body,
+        body: campaign.body || '',
+        html: personalizedHtml,
         fromEmail: sender
       });
     }
 
-    const updateData: any = { status: 'SENDING' };
-    if (scheduleAt) updateData.scheduledAt = new Date(scheduleAt);
-
     await prisma.emailCampaign.update({
       where: { id: campaignId },
-      data: updateData
+      data: { status: 'SENDING' }
     });
 
     res.json({
@@ -330,17 +265,26 @@ router.post('/ai/send-campaign', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/ai/content-types', (req: res) => {
+router.get('/ai/content-types', (req: Request, res: Response) => {
   res.json({
     success: true,
-    types: Object.entries(CONTENT_TYPES).map(([key, value]) => ({
-      key,
-      ...value
-    })),
-    tones: Object.entries(TONES).map(([key, value]) => ({
-      key,
-      description: value
-    }))
+    types: [
+      { key: 'welcome', label: 'Welcome Email', description: 'Onboarding emails for new subscribers' },
+      { key: 'promotional', label: 'Promotional', description: 'Sales and offers' },
+      { key: 'newsletter', label: 'Newsletter', description: 'Regular updates and content' },
+      { key: 'announcement', label: 'Announcement', description: 'Product/feature announcements' },
+      { key: 'followup', label: 'Follow-up', description: 'Nurture sequences' },
+      { key: 'confirmation', label: 'Confirmation', description: 'Order confirmations' },
+      { key: 'reengagement', label: 'Re-engagement', description: 'Win back inactive users' },
+      { key: 'survey', label: 'Survey', description: 'Feedback requests' }
+    ],
+    tones: [
+      { key: 'professional', label: 'Professional' },
+      { key: 'friendly', label: 'Friendly' },
+      { key: 'casual', label: 'Casual' },
+      { key: 'excited', label: 'Excited' },
+      { key: 'empathetic', label: 'Empathetic' }
+    ]
   });
 });
 
@@ -382,4 +326,3 @@ router.get('/ai/logs', async (req: Request, res: Response) => {
 
 export default router;
 export { prisma };
-export { CONTENT_TYPES, TONES };
