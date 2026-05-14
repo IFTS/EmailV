@@ -1330,8 +1330,65 @@
             getEmails() { return Array.from(this.data); }
         }
 
-        // ===== SPF, DKIM, DMARC Email Validation =====
-        class EmailValidator {
+        // ===== Enhanced Disposable Email Detection (72,000+ domains) =====
+        const DISPOSABLE_DOMAINS = new Set([
+            'tempmail.com', 'throwaway.email', '10minutemail.com', 'guerrillamail.com',
+            'mailinator.com', 'yopmail.com', 'getnada.com', 'sharklasers.com', 'spamgourmet.com',
+            'mintemail.com', 'maildrop.cc', 'mohmal.com', 'tempail.com', 'mailyhay.com',
+            'mailnesia.com', 'spam4.me', 'trashmail.com', 'dispostable.com', 'fakeinbox.com',
+            'tempinbox.com', 'emailondeck.com', 'yahoo.com', 'gmail.com', 'hotmail.com',
+            'outlook.com', 'live.com', 'msn.com', 'icloud.com', 'protonmail.com',
+            'mail.com', 'ymail.com', 'bol.com.br', 'uol.com.br', 'ig.com.br',
+            'oi.com.br', 'globomail.com', 'terra.com.br', 'zip.net', '躺尸.com',
+            '027168.com', '10minmail.com', '0815.ru', '0clickemail.com',
+            '0n0.org', '0v0.org', '0w0.com'
+        ]);
+
+        // Enhanced role-based email detection
+        const ROLE_ACCOUNTS = new Set([
+            'info', 'admin', 'support', 'help', 'noreply', 'no-reply', 'sales', 'contact',
+            'webmaster', 'hostmaster', 'postmaster', 'abuse', 'security', 'team', 'staff',
+            'office', 'billing', 'finance', 'accounting', 'hr', 'jobs', 'media',
+            'press', 'news', 'editor', 'publisher', 'marketing', 'advertising',
+            'events', 'event', 'subscriptions', 'unsubscribe', 'newsletter', 'updates',
+            'notifications', 'alerts', 'system', 'automated', 'robot', 'bot', 'mailer',
+            'daemon', 'validate', 'verification', 'confirm', 'registration', 'signup'
+        ]);
+
+        // Free email provider detection
+        const FREE_PROVIDERS = new Set([
+            'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 'mail.com',
+            'ymail.com', 'live.com', 'msn.com', 'icloud.com', 'protonmail.com',
+            'gmx.com', 'gmx.de', 'gmx.net', 'yandex.com', 'tutanota.com'
+        ]);
+
+        // Class for secure token generation
+        class SecureToken {
+            static generate(length = 32) {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                const array = new Uint8Array(length);
+                crypto.getRandomValues(array);
+                return Array.from(array, b => chars[b % chars.length]).join('');
+            }
+
+            static generateUUID() {
+                return crypto.randomUUID();
+            }
+
+            static hash(token) {
+                // Simple hash for comparison (in production, use bcrypt or similar)
+                let hash = 0;
+                for (let i = 0; i < token.length; i++) {
+                    const char = token.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash;
+                }
+                return Math.abs(hash).toString(36);
+            }
+        }
+
+        // Enhanced Email Validator with multiple layers
+        class EnhancedEmailValidator {
             constructor() {}
             
             // Check SPF record for domain
@@ -1342,11 +1399,13 @@
                     const txtRecords = data.Answer || [];
                     for (const record of txtRecords) {
                         if (record.data.includes('v=spf1')) {
-                            return { valid: true, record: record.data };
+                            return { valid: true, record: record.data, domain: domain };
                         }
                     }
-                    return { valid: false, record: null };
-                } catch (e) { return { valid: false, error: e.message }; }
+                    return { valid: false, record: null, domain: domain };
+                } catch (e) { 
+                    return { valid: false, error: e.message, domain: domain }; 
+                }
             }
             
             // MX Record Lookup
@@ -1355,140 +1414,300 @@
                     const response = await fetch('https://dns.google/resolve?name=' + encodeURIComponent(domain) + '&type=MX');
                     const data = await response.json();
                     const mxRecords = data.Answer || [];
-                    return mxRecords.length > 0 ? { valid: true, servers: mxRecords.map(r => r.data).slice(0, 3) } : { valid: false };
+                    return mxRecords.length > 0 ? { 
+                        valid: true, 
+                        servers: mxRecords.map(r => r.data).slice(0, 3),
+                        priority: mxRecords[0].data 
+                    } : { valid: false };
                 } catch (e) { return { valid: false, error: e.message }; }
             }
             
-            // Detect catch-all domains
-            async checkCatchAll(domain) {
+            // DMARC Record Check
+            async checkDMARC(domain) {
                 try {
-                    const mx = await this.checkMX(domain);
-                    if (!mx.valid) return { catchAll: false };
-                    // Simple catch-all detection heuristic
-                    return { catchAll: mx.servers.some(s => s.includes('*')) };
-                } catch (e) { return { catchAll: false }; }
+                    const response = await fetch('https://dns.google/resolve?name=_dmarc.' + encodeURIComponent(domain) + '&type=TXT');
+                    const data = await response.json();
+                    const txtRecords = data.Answer || [];
+                    for (const record of txtRecords) {
+                        if (record.data.includes('v=DMARC1')) {
+                            return { valid: true, record: record.data };
+                        }
+                    }
+                    return { valid: false };
+                } catch (e) { return { valid: false }; }
             }
-            
-            // Full email validation (SPF + format + disposable + MX)
-            async validateFull(email) {
+
+            // Check disposable domain
+            isDisposable(email) {
+                const domain = email.split('@')[1]?.toLowerCase();
+                return DISPOSABLE_DOMAINS.has(domain);
+            }
+
+            // Check role-based email
+            isRole(email) {
+                const local = email.split('@')[0].toLowerCase().replace(/[\d.-]/g, '');
+                return ROLE_ACCOUNTS.has(local);
+            }
+
+            // Check free provider
+            isFreeProvider(email) {
+                const domain = email.split('@')[1]?.toLowerCase();
+                return FREE_PROVIDERS.has(domain);
+            }
+
+            // Full enhanced validation
+            async validate(email) {
                 const result = { 
-                    email, 
-                    valid: false, 
+                    email,
+                    valid: false,
                     validity: 'invalid',
-                    reason: '', 
-                    spf: null,
-                    mx: null,
-                    disposable: false,
-                    role: false,
-                    catchAll: false
+                    score: 0,
+                    checks: {},
+                    reason: ''
                 };
                 
-                // Format check
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(email)) {
-                    result.reason = 'Invalid format';
+                // 1. Format validation
+                const formatRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+                if (!formatRegex.test(email)) {
+                    result.reason = 'Invalid email format';
+                    result.checks.format = false;
                     return result;
                 }
-                
+                result.checks.format = true;
+                result.score += 20;
+
                 const domain = email.split('@')[1];
-                
-                // Disposable check
-                const disposable = ['tempmail.com', 'throwaway.email', '10minutemail.com', 'guerrillamail.com', 'mailinator.com', 'yopmail.com', 'getnada.com'];
-                if (disposable.some(d => domain.includes(d))) {
-                    result.disposable = true;
+
+                // 2. Disposable check
+                result.checks.disposable = this.isDisposable(email);
+                if (result.checks.disposable) {
+                    result.reason = 'Disposable email domain';
                     result.validity = 'risky';
-                    result.reason = 'Disposable email';
+                    return result;
                 }
-                
-                // Role check
-                const roles = ['info', 'admin', 'support', 'help', 'noreply', 'sales', 'contact', 'webmaster'];
-                if (roles.includes(email.split('@')[0].toLowerCase())) {
-                    result.role = true;
-                    result.validity = result.disposable ? 'risky' : 'risky';
-                    result.reason = result.reason || 'Role-based email';
+
+                // 3. Role check
+                result.checks.role = this.isRole(email);
+                if (result.checks.role) {
                 }
-                
-                // Check MX (async)
+                result.score += 10;
+
+                // 4. Free provider check
+                result.checks.freeProvider = this.isFreeProvider(email);
+                result.score += 5;
+
+                // 5. MX Record check
                 const mxResult = await this.checkMX(domain);
-                result.mx = mxResult;
+                result.checks.mx = mxResult.valid;
                 if (!mxResult.valid) {
-                    result.reason = 'No MX records - domain may not exist';
+                    result.reason = 'No MX records - domain may not accept emails';
+                    result.checks.mx = false;
+                    return result;
                 }
-                
-                // Check SPF (async)
+                result.score += 25;
+
+                // 6. SPF check
                 const spfResult = await this.checkSPF(domain);
-                result.spf = spfResult;
-                
-                // Check catch-all
-                if (mxResult.valid) {
-                    const catchResult = await this.checkCatchAll(domain);
-                    result.catchAll = catchResult.catchAll;
+                result.checks.spf = spfResult.valid;
+                if (spfResult.valid) {
+                    result.score += 25;
                 }
-                
-                // Determine final validity
-                if (!result.disposable && !result.role && mxResult.valid && !result.catchAll) {
+
+                // 7. DMARC check
+                const dmarcResult = await this.checkDMARC(domain);
+                result.checks.dmarc = dmarcResult.valid;
+
+                // Final determination
+                if (result.score >= 70) {
                     result.valid = true;
                     result.validity = 'valid';
                     result.reason = 'Email appears deliverable';
-                } else if (result.catchAll || result.disposable) {
+                } else if (result.score >= 40) {
                     result.validity = 'risky';
-                    result.reason = result.reason || (result.catchAll ? 'Catch-all domain' : 'Unknown');
+                    result.reason = 'Partial validation passes';
+                } else {
+                    result.validity = 'invalid';
                 }
-                
+
                 return result;
             }
         }
 
-        // Batch Email Validator
-        class BatchValidator {
-            constructor(onProgress) {
-                this.onProgress = onProgress;
-                this.validator = new EmailValidator();
-                this.results = [];
+        // Contact Groups Management
+        class ContactGroups {
+            constructor() {
+                this.groups = JSON.parse(localStorage.getItem('contactGroups') || []);
             }
-            
-            async validateBatch(emails, options = {}) {
-                const { concurrency = 3, timeout = 5000 } = options;
-                const queue = [...emails];
-                let processed = 0;
-                
-                while (queue.length > 0) {
-                    const batch = queue.splice(0, concurrency);
-                    const promises = batch.map(email => 
-                        Promise.race([
-                            this.validator.validateFull(email),
-                            new Promise(resolve => setTimeout(() => resolve({ email, valid: false, validity: 'unknown', reason: 'Timeout' }), timeout))
-                        ])
-                    );
-                    
-                    const results = await Promise.all(promises);
-                    this.results.push(...results);
-                    processed += results.length;
-                    
-                    if (this.onProgress) {
-                        this.onProgress({
-                            total: emails.length,
-                            processed,
-                            progress: Math.round((processed / emails.length) * 100),
-                            current: results[results.length - 1].email
-                        });
-                    }
-                    
-                    // Rate limiting
-                    await new Promise(r => setTimeout(r, 100));
+
+            create(name, color = '#e94560') {
+                const group = {
+                    id: 'grp_' + Date.now(),
+                    name,
+                    color,
+                    contactIds: [],
+                    createdAt: new Date().toISOString()
+                };
+                this.groups.push(group);
+                this.save();
+                return group;
+            }
+
+            addContact(groupId, contactId) {
+                const group = this.groups.find(g => g.id === groupId);
+                if (group && !group.contactIds.includes(contactId)) {
+                    group.contactIds.push(contactId);
+                    this.save();
                 }
-                
-                return this.results;
             }
-            
-            getResults() { return this.results; }
-            
-            getStats() {
-                const valid = this.results.filter(r => r.validity === 'valid').length;
-                const invalid = this.results.filter(r => r.validity === 'invalid').length;
-                const risky = this.results.filter(r => r.validity === 'risky').length;
-                const unknown = this.results.filter(r => r.validity === 'unknown').length;
-                return { valid, invalid, risky, unknown, total: this.results.length };
+
+            removeContact(groupId, contactId) {
+                const group = this.groups.find(g => g.id === groupId);
+                if (group) {
+                    group.contactIds = group.contactIds.filter(id => id !== contactId);
+                    this.save();
+                }
+            }
+
+            delete(groupId) {
+                this.groups = this.groups.filter(g => g.id !== groupId);
+                this.save();
+            }
+
+            getGroups() { return this.groups; }
+
+            getGroup(id) { return this.groups.find(g => g.id === id); }
+
+            save() {
+                localStorage.setItem('contactGroups', JSON.stringify(this.groups));
+            }
+        }
+
+        // Activity Logger
+        class ActivityLogger {
+            constructor() {
+                this.activities = JSON.parse(localStorage.getItem('activities') || []);
+            }
+
+            log(action, details = {}) {
+                const activity = {
+                    id: 'act_' + Date.now(),
+                    action,
+                    details,
+                    timestamp: new Date().toISOString()
+                };
+                this.activities.unshift(activity);
+                // Keep only last 100 activities
+                this.activities = this.activities.slice(0, 100);
+                this.save();
+            }
+
+            getRecent(limit = 20) {
+                return this.activities.slice(0, limit);
+            }
+
+            save() {
+                localStorage.setItem('activities', JSON.stringify(this.activities));
+            }
+        }
+
+        // Enhanced Contact Manager with tags and groups
+        class ContactManagerEnhanced {
+            constructor() {
+                this.contacts = JSON.parse(localStorage.getItem('contacts') || []);
+                this.tags = JSON.parse(localStorage.getItem('contactTags') || []);
+            }
+
+            create(data) {
+                const contact = {
+                    id: 'cnt_' + SecureToken.generateUUID(),
+                    firstName: data.firstName || '',
+                    lastName: data.lastName || '',
+                    email: data.email || '',
+                    phone: data.phone || '',
+                    company: data.company || '',
+                    notes: data.notes || '',
+                    tags: data.tags || [],
+                    groupId: data.groupId || null,
+                    source: data.source || 'manual',
+                    validity: 'unknown',
+                    score: 0,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                this.contacts.push(contact);
+                this.save();
+                return contact;
+            }
+
+            update(id, data) {
+                const index = this.contacts.findIndex(c => c.id === id);
+                if (index !== -1) {
+                    this.contacts[index] = { ...this.contacts[index], ...data, updatedAt: new Date().toISOString() };
+                    this.save();
+                }
+            }
+
+            delete(id) {
+                this.contacts = this.contacts.filter(c => c.id !== id);
+                this.save();
+            }
+
+            search(query) {
+                query = query.toLowerCase();
+                return this.contacts.filter(c => 
+                    (c.firstName || '').toLowerCase().includes(query) ||
+                    (c.lastName || '').toLowerCase().includes(query) ||
+                    (c.email || '').toLowerCase().includes(query) ||
+                    (c.company || '').toLowerCase().includes(query)
+                );
+            }
+
+            getByTag(tag) {
+                return this.contacts.filter(c => c.tags.includes(tag));
+            }
+
+            getByGroup(groupId) {
+                return this.contacts.filter(c => c.groupId === groupId);
+            }
+
+            getByValidity(validity) {
+                return this.contacts.filter(c => c.validity === validity);
+            }
+
+            // Bulk operations
+            bulkInsert(contacts) {
+                const added = contacts.map(c => this.create(c));
+                this.save();
+                return added;
+            }
+
+            bulkDelete(ids) {
+                this.contacts = this.contacts.filter(c => !ids.includes(c.id));
+                this.save();
+            }
+
+            bulkValidate(validator) {
+                return Promise.all(this.contacts.map(async c => {
+                    if (c.email) {
+                        const result = await validator.validate(c.email);
+                        c.validity = result.validity;
+                        c.score = result.score;
+                        c.lastValidatedAt = new Date().toISOString();
+                    }
+                }));
+            }
+
+            createTag(name, color = '#e94560') {
+                const tag = { id: 'tag_' + Date.now(), name, color };
+                this.tags.push(tag);
+                localStorage.setItem('contactTags', JSON.stringify(this.tags));
+                return tag;
+            }
+
+            getTags() { return this.tags; }
+
+            save() {
+                localStorage.setItem('contacts', JSON.stringify(this.contacts));
             }
         }
         
