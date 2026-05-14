@@ -4,14 +4,19 @@ import { useState, useEffect } from 'react';
 import { 
   Users, Mail, BarChart3, Search, Bot, 
   Send, FileText, Plus, Trash2, Zap, 
-  CheckCircle, XCircle, AlertCircle, Loader2
+  CheckCircle, XCircle, AlertCircle, Loader2,
+  Tag, Heart, Folder, Save, Upload, Download,
+  Copy, Merge, Edit, Eye
 } from 'lucide-react';
 
 interface Stats {
   contacts: number;
   validContacts: number;
+  invalidContacts: number;
   campaigns: number;
   seoAudits: number;
+  templates: number;
+  tags: number;
 }
 
 interface LogEntry {
@@ -22,7 +27,7 @@ interface LogEntry {
 }
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<Stats>({ contacts: 0, validContacts: 0, campaigns: 0, seoAudits: 0 });
+  const [stats, setStats] = useState<Stats>({ contacts: 0, validContacts: 0, invalidContacts: 0, campaigns: 0, seoAudits: 0, templates: 0, tags: 0 });
   const [loading, setLoading] = useState(true);
   const [seoUrl, setSeoUrl] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
@@ -134,10 +139,10 @@ export default function Dashboard() {
 
           <div className="p-6 rounded-xl bg-gray-900/50 border border-gray-800">
             <div className="flex items-center justify-between mb-2">
-              <Send className="w-5 h-5 text-indigo-400" />
+              <Tag className="w-5 h-5 text-indigo-400" />
             </div>
-            <div className="text-2xl font-bold">{loading ? '...' : stats.campaigns}</div>
-            <div className="text-sm text-gray-500">Campaigns</div>
+            <div className="text-2xl font-bold">{loading ? '...' : stats.tags}</div>
+            <div className="text-sm text-gray-500">Tags</div>
           </div>
 
           <div className="p-6 rounded-xl bg-gray-900/50 border border-gray-800">
@@ -187,6 +192,29 @@ export default function Dashboard() {
               {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bot className="w-4 h-4" />}
               Generate AI Campaign
             </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="p-6 rounded-xl bg-gray-900/50 border border-gray-800">
+            <h3 className="font-semibold mb-2 flex items-center gap-2">
+              <Tag className="w-4 h-4 text-pink-400" />Tags
+            </h3>
+            <p className="text-sm text-gray-500">Manage contact tags</p>
+          </div>
+          
+          <div className="p-6 rounded-xl bg-gray-900/50 border border-gray-800">
+            <h3 className="font-semibold mb-2 flex items-center gap-2">
+              <Folder className="w-4 h-4 text-blue-400" />Groups
+            </h3>
+            <p className="text-sm text-gray-500">Organize contacts</p>
+          </div>
+          
+          <div className="p-6 rounded-xl bg-gray-900/50 border border-gray-800">
+            <h3 className="font-semibold mb-2 flex items-center gap-2">
+              <Heart className="w-4 h-4 text-red-400" />Favorites
+            </h3>
+            <p className="text-sm text-gray-500">Mark favorites</p>
           </div>
         </div>
 

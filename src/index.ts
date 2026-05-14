@@ -7,6 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import contactRouter from './controllers/contactController.js';
 import seoRouter from './controllers/seoController.js';
 import aiRouter from './controllers/aiController.js';
+import emailRouter from './controllers/emailController.js';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -105,13 +106,21 @@ app.get('/api/stats', async (req, res) => {
       return;
     }
 
-    const [contacts, validContacts, campaigns, seoAudits, aiLogs] = await Promise.all([
+    const [contacts, validContacts, campaigns, seoAudits, aiLogs, templates] = await Promise.all([
       prisma.contact.count({ where: { tenantId: tenantId as string } }),
       prisma.contact.count({ where: { tenantId: tenantId as string, validity: 'valid' } }),
       prisma.emailCampaign.count({ where: { tenantId: tenantId as string } }),
       prisma.seoAudit.count({ where: { tenantId: tenantId as string } }),
-      prisma.aiAgentLog.count({ where: { tenantId: tenantId as string } })
+      prisma.aiAgentLog.count({ where: { tenantId: tenantId as string } }),
+      prisma.emailCampaign.count({ where: { tenantId: tenantId as string, status: 'DRAFT' } })
     ]);
+
+    const tags = await prisma.contact.findMany({
+      where: { tenantId: tenantId as string },
+      select: { tags: true }
+    });
+    const allTags = new Map<string, number>();
+    tags.forEach(c => (c.tags || []).forEach((t: string) => allTags.set(t, (allTags.get(t) || 0) + 1)));
 
     res.json({
       success: true,
@@ -121,7 +130,9 @@ app.get('/api/stats', async (req, res) => {
         invalidContacts: contacts - validContacts,
         campaigns,
         seoAudits,
-        aiLogs
+        aiLogs,
+        templates,
+        tags: allTags.size
       }
     });
   } catch (error: any) {
@@ -132,6 +143,7 @@ app.get('/api/stats', async (req, res) => {
 app.use('/api', contactRouter);
 app.use('/api', seoRouter);
 app.use('/api', aiRouter);
+app.use('/api/email', emailRouter);
 
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Server error:', err);
