@@ -15,15 +15,14 @@ router.post('/contacts', async (req: Request, res: Response) => {
       return;
     }
 
-    const results = [];
+    const results: any[] = [];
     const seenEmails = new Set<string>();
-    const seenPhones = new Set<string>();
 
     for (const contact of contacts) {
-      const { firstName, lastName, email, phone, company, tags, groupIds, notes, favorite } = contact;
+      const { firstName, lastName, email, phone, company, tags, notes, favorite } = contact;
       
       if (!email || !isValidEmailFormat(email)) {
-        results.push({ contact, status: 'skipped', reason: 'invalid email format' });
+        results.push({ contact: { email }, status: 'skipped', reason: 'invalid email format' });
         continue;
       }
 
@@ -31,19 +30,23 @@ router.post('/contacts', async (req: Request, res: Response) => {
       
       if (deduplicate) {
         if (seenEmails.has(normalizedEmail)) {
-          results.push({ contact, status: 'skipped', reason: 'duplicate in batch' });
+          results.push({ contact: { email: normalizedEmail }, status: 'skipped', reason: 'duplicate in batch' });
           continue;
         }
         seenEmails.add(normalizedEmail);
       }
 
       let validity = 'unknown';
-      let validityDtls = {};
+      let validityDtls: any = {};
 
       if (validate) {
-        const validation = await validateEmail(normalizedEmail);
-        validity = validation.validity;
-        validityDtls = validation;
+        try {
+          const validation = await validateEmail(normalizedEmail);
+          validity = validation.validity;
+          validityDtls = validation;
+        } catch (e) {
+          validity = 'unknown';
+        }
       }
 
       try {
@@ -57,9 +60,9 @@ router.post('/contacts', async (req: Request, res: Response) => {
             phone: phone || null,
             company: company || null,
             tags: tags || [],
-            metadata: { notes, favorite: favorite || false },
+            metadata: { notes: notes || '', favorite: favorite || false },
             validity,
-            validatedAt: new Date()
+            updatedAt: new Date()
           },
           update: {
             firstName: firstName || '',
@@ -67,23 +70,23 @@ router.post('/contacts', async (req: Request, res: Response) => {
             phone: phone || null,
             company: company || null,
             tags: tags || [],
-            metadata: { notes, favorite: favorite || false },
+            metadata: { notes: notes || '', favorite: favorite || false },
             validity,
-            validatedAt: new Date()
+            updatedAt: new Date()
           }
         });
 
         results.push({ contact: saved, status: 'saved', validation: validityDtls });
       } catch (dbError: any) {
-        results.push({ contact, status: 'error', reason: dbError.message });
+        results.push({ contact: { email: normalizedEmail }, status: 'error', reason: dbError.message });
       }
     }
 
     const stats = {
       total: contacts.length,
-      saved: results.filter((r: any) => r.status === 'saved').length,
-      skipped: results.filter((r: any) => r.status === 'skipped').length,
-      errors: results.filter((r: any) => r.status === 'error').length
+      saved: results.filter((r) => r.status === 'saved').length,
+      skipped: results.filter((r) => r.status === 'skipped').length,
+      errors: results.filter((r) => r.status === 'error').length
     };
 
     res.json({ success: true, results, stats });
@@ -115,12 +118,14 @@ router.get('/contacts', async (req: Request, res: Response) => {
     
     if (validity) where.validity = validity;
 
-    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
+    const pageNum = parseInt(page as string) || 1;
+    const limitNum = Math.min(parseInt(limit as string) || 50, 100);
+    const skip = (pageNum - 1) * limitNum;
 
     const [contacts, total] = await Promise.all([
       prisma.contact.findMany({
         where,
-        take: parseInt(limit as string),
+        take: limitNum,
         skip,
         orderBy: { [sort as string]: order as 'asc' | 'desc' }
       }),
@@ -131,12 +136,72 @@ router.get('/contacts', async (req: Request, res: Response) => {
       success: true,
       contacts,
       pagination: {
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
+        page: pageNum,
+        limit: limitNum,
         total,
-        pages: Math.ceil(total / parseInt(limit as string))
+        pages: Math.ceil(total / limitNum)
       }
     });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/contacts/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { tenantId } = req.query;
+
+    const contact = await prisma.contact.findFirst({
+      where: { id, tenantId: tenantId as string }
+    });
+
+    if (!contact) {
+      res.status(404).json({ error: 'Contact not found' });
+      return;
+    }
+
+    res.json({ success: true, contact });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put('/contacts/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { tenantId, firstName, lastName, email, phone, company, tags, notes, favorite } = req.body;
+
+    const contact = await prisma.contact.update({
+      where: { id },
+      data: {
+        firstName: firstName || undefined,
+        lastName: lastName || undefined,
+        email: email?.toLowerCase() || undefined,
+        phone: phone || undefined,
+        company: company || undefined,
+        tags: tags || undefined,
+        metadata: { notes: notes || '', favorite: favorite || false },
+        updatedAt: new Date()
+      }
+    });
+
+    res.json({ success: true, contact });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete('/contacts/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { tenantId } = req.query;
+
+    await prisma.contact.deleteMany({
+      where: { id, tenantId: tenantId as string }
+    });
+
+    res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -151,58 +216,63 @@ router.post('/contacts/bulk-edit', async (req: Request, res: Response) => {
       return;
     }
 
-    let updateData: any = {};
+    let count = 0;
     
     switch (action) {
       case 'add_tags':
-        const contacts = await prisma.contact.findMany({
-          where: { id: { in: contactIds }, tenantId
-        });
-        const newTags = data.tags || [];
-        for (const contact of contacts) {
-          const existing = contact.tags || [];
-          await prisma.contact.update({
-            where: { id: contact.id },
-            data: { tags: [...new Set([...existing, ...newTags])] }
-          });
+        const newTags = data?.tags || [];
+        for (const id of contactIds) {
+          const contact = await prisma.contact.findFirst({ where: { id, tenantId } });
+          if (contact) {
+            const existing = contact.tags || [];
+            await prisma.contact.update({
+              where: { id },
+              data: { tags: [...new Set([...existing, ...newTags])] }
+            });
+            count++;
+          }
         }
-        updateData = { count: contacts.length };
         break;
         
       case 'remove_tags':
+        const removeTags = data?.tags || [];
         for (const id of contactIds) {
-          const contact = await prisma.contact.findUnique({ where: { id } });
+          const contact = await prisma.contact.findFirst({ where: { id, tenantId } });
           if (contact) {
-            const tags = (contact.tags || []).filter((t: string) => !(data.tags || []).includes(t));
+            const tags = (contact.tags || []).filter((t) => !removeTags.includes(t));
             await prisma.contact.update({ where: { id }, data: { tags } });
+            count++;
           }
         }
-        updateData = { count: contactIds.length };
         break;
         
       case 'delete':
-        await prisma.contact.deleteMany({
-          where: { id: { in: contactIds }, tenantId
+        const del = await prisma.contact.deleteMany({
+          where: { id: { in: contactIds }, tenantId }
         });
-        updateData = { count: contactIds.length };
+        count = del.count;
         break;
         
       case 'validate':
         for (const id of contactIds) {
-          const contact = await prisma.contact.findUnique({ where: { id } });
+          const contact = await prisma.contact.findFirst({ where: { id, tenantId } });
           if (contact) {
-            const validation = await validateEmailFull(contact.email);
-            await prisma.contact.update({
-              where: { id },
-              data: { 
-                validity: validation.result,
-                validityDtls: validation,
-                validatedAt: new Date()
-              }
-            });
+            try {
+              const validation = await validateEmailFull(contact.email);
+              await prisma.contact.update({
+                where: { id },
+                data: { 
+                  validity: validation.result,
+                  validityDtls: validation,
+                  updatedAt: new Date()
+                }
+              });
+              count++;
+            } catch (e) {
+              // Skip failed validations
+            }
           }
         }
-        updateData = { count: contactIds.length };
         break;
         
       default:
@@ -210,7 +280,7 @@ router.post('/contacts/bulk-edit', async (req: Request, res: Response) => {
         return;
     }
 
-    res.json({ success: true, ...updateData });
+    res.json({ success: true, count });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -252,7 +322,7 @@ router.get('/contacts/duplicates', async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      duplicates: duplicates.filter(d => d.contacts.length > 1),
+      duplicates: duplicates.filter((d) => d.contacts.length > 1),
       count: duplicates.length
     });
   } catch (error: any) {
@@ -270,20 +340,25 @@ router.post('/contacts/merge', async (req: Request, res: Response) => {
     }
 
     const contacts = await prisma.contact.findMany({
-      where: { id: { in: mergeContactIds }, tenantId
+      where: { id: { in: mergeContactIds }, tenantId }
     });
 
-    const keepContact = await prisma.contact.findUnique({ where: { id: keepContactId } });
+    const keepContact = await prisma.contact.findFirst({ where: { id: keepContactId, tenantId } });
     
-    const mergedTags = new Set(keepContact?.tags || []);
-    const mergedNotes = (keepContact?.metadata as any)?.notes || '';
-    let favorite = (keepContact?.metadata as any)?.favorite || false;
+    if (!keepContact) {
+      res.status(404).json({ error: 'Keep contact not found' });
+      return;
+    }
+    
+    const mergedTags = new Set(keepContact.tags || []);
+    const existingNotes = (keepContact.metadata as any)?.notes || '';
+    let favorite = (keepContact.metadata as any)?.favorite || false;
 
     for (const contact of contacts) {
-      if (contact.tags) contact.tags.forEach((t: string) => mergedTags.add(t));
+      if (contact.tags) contact.tags.forEach((t) => mergedTags.add(t));
       const notes = (contact.metadata as any)?.notes || '';
-      if (notes && !mergedNotes.includes(notes)) {
-        mergedNotes += '\n' + notes;
+      if (notes && !existingNotes.includes(notes)) {
+        existingNotes += '\n' + notes;
       }
       if ((contact.metadata as any)?.favorite) favorite = true;
     }
@@ -292,148 +367,16 @@ router.post('/contacts/merge', async (req: Request, res: Response) => {
       where: { id: keepContactId },
       data: {
         tags: Array.from(mergedTags),
-        metadata: { notes: mergedNotes, favorite }
+        metadata: { notes: existingNotes, favorite },
+        updatedAt: new Date()
       }
     });
 
     await prisma.contact.deleteMany({
-      where: { id: { in: mergeContactIds }, tenantId
+      where: { id: { in: mergeContactIds }, tenantId }
     });
 
     res.json({ success: true, merged: keepContactId, removed: mergeContactIds.length });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/contacts/:id/activity', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { tenantId, type, description } = req.body;
-
-    const activity = await prisma.auditLog.create({
-      data: {
-        tenantId,
-        userId: id,
-        action: type,
-        resource: 'contact_activity',
-        details: { contactId: id, description }
-      }
-    });
-
-    res.json({ success: true, activity });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.get('/contacts/:id/activity', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { tenantId } = req.query;
-
-    const activities = await prisma.auditLog.findMany({
-      where: { tenantId: tenantId as string, userId: id, resource: 'contact_activity' },
-      orderBy: { createdAt: 'desc' },
-      take: 50
-    });
-
-    res.json({ success: true, activities });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/contacts/import-history', async (req: Request, res: Response) => {
-  try {
-    const { tenantId, fileName, stats } = req.body;
-
-    const importRecord = await prisma.auditLog.create({
-      data: {
-        tenantId,
-        action: 'import',
-        resource: 'contacts',
-        details: { fileName, stats, importedAt: new Date() }
-      }
-    });
-
-    res.json({ success: true, import: importRecord });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.get('/contacts/import-history', async (req: Request, res: Response) => {
-  try {
-    const { tenantId } = req.query;
-
-    const imports = await prisma.auditLog.findMany({
-      where: { tenantId: tenantId as string, action: 'import', resource: 'contacts' },
-      orderBy: { createdAt: 'desc' },
-      take: 20
-    });
-
-    res.json({ success: true, imports });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/contacts/backup', async (req: Request, res: Response) => {
-  try {
-    const { tenantId } = req.body;
-
-    const contacts = await prisma.contact.findMany({ where: { tenantId } });
-    const campaigns = await prisma.emailCampaign.findMany({ where: { tenantId } });
-
-    const backup = {
-      version: '2.1',
-      exportedAt: new Date().toISOString(),
-      contacts,
-      campaigns
-    };
-
-    res.json({ success: true, backup, count: contacts.length });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/contacts/restore', async (req: Request, res: Response) => {
-  try {
-    const { tenantId, backup } = req.body;
-
-    if (!backup || !backup.contacts) {
-      res.status(400).json({ error: 'Invalid backup data' });
-      return;
-    }
-
-    let restored = 0;
-    
-    for (const contact of backup.contacts) {
-      await prisma.contact.upsert({
-        where: { tenantId_email: { tenantId, email: contact.email } },
-        create: { ...contact, tenantId },
-        update: contact
-      });
-      restored++;
-    }
-
-    res.json({ success: true, restored });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/tags', async (req: Request, res: Response) => {
-  try {
-    const { tenantId, name, color } = req.body;
-    
-    const tag = await prisma.contact.create({
-      data: { tenantId, name, color: color || '#6366f1' }
-    });
-    
-    res.json({ success: true, tag });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -443,13 +386,18 @@ router.get('/tags', async (req: Request, res: Response) => {
   try {
     const { tenantId } = req.query;
     
-    const tags = await prisma.contact.findMany({
+    if (!tenantId) {
+      res.status(400).json({ error: 'tenantId required' });
+      return;
+    }
+    
+    const contacts = await prisma.contact.findMany({
       where: { tenantId: tenantId as string },
       select: { tags: true }
     });
     
     const allTags = new Map<string, number>();
-    tags.forEach(c => {
+    contacts.forEach((c) => {
       (c.tags || []).forEach((t: string) => {
         allTags.set(t, (allTags.get(t) || 0) + 1);
       });
@@ -464,22 +412,18 @@ router.get('/tags', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/groups', async (req: Request, res: Response) => {
+router.post('/validate', async (req: Request, res: Response) => {
   try {
-    const { tenantId, name, color, contactIds } = req.body;
-    
-    const group = await prisma.contact.create({
-      data: {
-        tenantId,
-        firstName: name,
-        lastName: 'Group',
-        email: `${name.toLowerCase().replace(/\s+/g, '.')}@group.local`,
-        tags: [name],
-        metadata: { isGroup: true, color, memberCount: contactIds?.length || 0 }
-      }
-    });
-    
-    res.json({ success: true, group });
+    const { emails } = req.body;
+
+    if (!Array.isArray(emails)) {
+      res.status(400).json({ error: 'emails array required' });
+      return;
+    }
+
+    const limitedEmails = emails.slice(0, 100);
+    const results = await validateBatch(limitedEmails);
+    res.json({ success: true, results });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -489,27 +433,19 @@ router.get('/groups', async (req: Request, res: Response) => {
   try {
     const { tenantId } = req.query;
     
-    const groups = await prisma.contact.findMany({
-      where: { tenantId: tenantId as string, metadata: { path: 'isGroup', equals: true } }
-    });
-    
-    res.json({ success: true, groups });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/validate', async (req: Request, res: Response) => {
-  try {
-    const { emails, provider } = req.body;
-
-    if (!Array.isArray(emails)) {
-      res.status(400).json({ error: 'emails array required' });
+    if (!tenantId) {
+      res.status(400).json({ error: 'tenantId required' });
       return;
     }
 
-    const results = await validateBatch(emails.slice(0, 100));
-    res.json({ success: true, results });
+    const groups = await prisma.contact.findMany({
+      where: { 
+        tenantId: tenantId as string, 
+        metadata: { path: ['isGroup'], equals: true } 
+      }
+    });
+    
+    res.json({ success: true, groups });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
