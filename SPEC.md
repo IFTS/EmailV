@@ -1,205 +1,131 @@
-# EmailV Pro - Enterprise Specification
+# EmailV Pro - Technical Specification
 
-## 1. Project Overview
+## Project Overview
+- **Name**: EmailV Pro
+- **Type**: Enterprise Multi-tenant SaaS Email Marketing Platform
+- **Version**: 3.0.0
+- **Stack**: TypeScript, Express, Prisma, PostgreSQL, Redis, BullMQ
 
-**Project Name:** EmailV Pro (IFTS/EmailV)
-**Type:** Enterprise Contact Management & Mass Email Marketing Platform
-**Core Functionality:** Complete email verification, contact management, campaign automation, and mass emailing system
-**Target Users:** Marketers, CRM managers, sales teams, and enterprises
+## Architecture
 
----
+### Frontend (index.html - Single Page App)
+- Vanilla JavaScript with modern ES6+
+- Tailwind CSS styling
+- LocalStorage for demo data persistence
+- Font Awesome icons
 
-## 2. Architecture
+### Backend (src/)
+- Express.js REST API
+- Prisma ORM with PostgreSQL
+- BullMQ for job queues
+- Redis for caching/rate limiting
 
-### Technology Stack
-- **Frontend:** Vanilla JavaScript (ES6+), HTML5, CSS3
-- **Backend:** Node.js 18+, Express.js
-- **Security:** Helmet.js, CORS, Rate Limiting
-- **Email:** Nodemailer with SMTP
-- **Validation:** DNS MX/SPF/DMARC lookups
-
-### Repository Structure
-```
-/
-├── index.html           # Frontend SPA
-├── backend/
-│   └── server.js       # Express API server
-├── package.json       # Dependencies
-├── .env.example       # Environment template
-├── .gitignore         # Git ignore rules
-├── SPEC.md           # This file
-└── .github/
-    └── workflows/
-        └── ci.yml    # CI pipeline
-```
-
----
-
-## 3. Validation Methods
-
-### Email Verification (Multi-Layer)
-1. **Format Check** - RFC 5322 compliant regex
-2. **MX Record Check** - DNS resolution for mail servers
-3. **SPF Check** - DNS TXT record validation
-4. **DMARC Check** - Domain policy validation
-5. **Disposable Detection** - Temporary email blocking (40+ providers)
-6. **Role Detection** - info@, admin@, support@ flagging
-
-### Disposable Email Providers
-- tempmail.com, throwaway.email, 10minutemail.com
-- guerrillamail.com, mailinator.com, yopmail.com
-- getnada.com, sharklasers.com, mintemail.com
-- maildrop.cc, mohmal.com, tempail.com, spam4.me
-- And 30+ more...
-
-### Role-Based Accounts
-- info, admin, support, help, noreply
-- sales, contact, webmaster, hostmaster
-- postmaster, abuse, security, team, staff
-
----
-
-## 4. API Endpoints
-
-### Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /api/auth/signup | Register with email verification |
-| GET | /api/auth/verify | Verify email token (15min TTL) |
-| POST | /api/auth/login | Session login |
+## API Endpoints
 
 ### Contacts
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /api/contacts | List all contacts |
-| POST | /api/contacts | Create contact |
+| POST | /api/contacts | Import contacts |
+| GET | /api/contacts | List contacts |
+| GET | /api/contacts/:id | Get contact |
 | PUT | /api/contacts/:id | Update contact |
 | DELETE | /api/contacts/:id | Delete contact |
-| POST | /api/contacts/import | Batch import |
+| POST | /api/contacts/bulk-edit | Bulk operations |
+| GET | /api/contacts/duplicates | Find duplicates |
+| POST | /api/contacts/merge | Merge contacts |
+| GET | /api/tags | Get all tags |
+| GET | /api/groups | Get groups |
+| POST | /api/validate | Validate emails |
 
-### Validation
+### Templates & SMTP
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /api/validate/email | Single email validation |
-| POST | /api/validate/batch | Batch validation |
+| POST | /api/email/templates | Create template |
+| GET | /email/templates | List templates |
+| GET | /email/templates/:id | Get template |
+| PUT | /email/templates/:id | Update template |
+| DELETE | /email/templates/:id | Delete template |
+| POST | /api/email/smtp | Configure SMTP |
+| GET | /api/email/smtp | Get SMTP config |
+| POST | /api/email/smtp/test | Test SMTP |
 
-### Campaigns
+### SEO
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /api/campaigns | List campaigns |
-| POST | /api/campaigns | Create campaign |
-| POST | /api/campaigns/:id/send | Send campaign |
+| POST | /api/seo/analyze | Analyze URL |
+| GET | /api/seo/audits | List audits |
+| GET | /api/seo/audits/:id | Get audit |
 
-### Templates
+### AI
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | /api/templates | List templates |
-| POST | /api/templates | Create template |
-| DELETE | /api/templates/:id | Delete template |
-
-### Mail Lists
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/lists | List mail lists |
-| POST | /api/lists | Create list |
-| POST | /api/lists/:id/subscribe | Subscribe |
-| POST | /api/lists/:id/unsubscribe | Unsubscribe |
-
-### Telemetry
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/telemetry/open | Open tracking (1x1 GIF) |
-| GET | /api/telemetry/click | Click tracking redirect |
+| POST | /api/ai/generate-content | AI content |
+| POST | /api/ai/subject-line | Subject lines |
+| POST | /api/ai/segment | Segment contacts |
+| POST | /api/ai/analyze-performance | Analyze campaign |
+| POST | /api/ai/create-campaign | Create campaign |
+| POST | /api/ai/send-campaign | Send campaign |
+| GET | /api/ai/content-types | Get types/tones |
 
 ### System
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | /api/health | Health check |
+| GET | /api/ping | Ping |
 | GET | /api/stats | Dashboard stats |
-| GET | /api/activities | Activity log |
 
----
+## Database Schema
 
-## 5. Security Features
+### Core Tables
+- **Tenant**: Multi-tenant organization
+- **User**: Tenant users with roles
+- **Contact**: Email contacts
+- **EmailCampaign**: Campaign tracking
+- **SeoAudit**: SEO analysis results
+- **AiAgentLog**: AI usage logging
+- **TenantSetting**: Tenant configuration
+- **Webhook**: Webhook configurations
+- **AuditLog**: System audit trail
 
-- **Token Generation:** crypto.randomBytes(32) for secure tokens
-- **Password Hashing:** SHA256 for verification tokens
-- **Token Expiry:** 15-minute verification TTL
-- **Rate Limiting:** 100 requests per 15 minutes
-- **Helmet.js:** Security headers
-- **CORS:** Configured for cross-origin requests
-- **Suppression List:** Tracks unsubscribes/bounces
+## Security Features
+- Helmet.js security headers
+- CORS configuration
+- Rate limiting (express-rate-limit)
+- Tenant isolation middleware
+- Token-based auth
+- Credential vault (AES-256-GCM)
+- API key management
 
----
+## Rate Limiting
+- API: 100 req/15min
+- Auth: 10 req/15min
+- Per-tenant quotas via Redis
 
-## 6. Frontend Features
+## Queue System
+- BullMQ for email sending
+- Per-domain rate limiting
+- IP warming schedules
+- Exponential backoff retry
 
-### Dashboard
-- Statistics cards (Total, Valid, Invalid, Risky)
-- Quick action buttons
+## Email Validation
+- RFC 5322 format check
+- MX record lookup
+- SMTP verification
+- Disposable domain detection (500+)
+- Role account detection (50+)
+- Catch-all detection
 
-### Contact Management
-- Add/Edit/Delete contacts
-- Import (CSV, VCF, JSON, XML, TSV, LDIF)
-- Export (CSV, JSON, vCard)
-- Search and filter
-- Bulk actions
+## External Integrations
+- Resend (email sending)
+- OpenAI GPT-4o (AI content)
+- ZeroBounce/NeverBounce/Kickbox (validation)
 
-### Email Tools
-- Email validator with progress
-- Email spider (website scraping)
-- Duplicate finder
-
-### Campaign
-- Create campaigns
-- Template selection
-- Personalization ({{name}}, {{email}})
-- Open/click tracking
-
-### Mail Lists
-- Create lists
-- Subscribe/unsubscribe
-
-### Settings
-- SMTP configuration
-- Email service API
-- Validation settings
-- Backup/restore
-
----
-
-## 7. Environment Variables
-
-```env
-PORT=3000
-NODE_ENV=production
-APP_URL=http://localhost:3000
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your@email.com
-SMTP_PASS=app_password
+## Environment Variables
 ```
-
----
-
-## 8. Running
-
-### Frontend
-Open index.html in browser
-
-### Full Stack
-```bash
-npm install
-cp .env.example .env
-# Configure .env
-npm start
+DATABASE_URL=postgresql://...
+REDIS_URL=redis://...
+RESEND_API_KEY=re_xxx
+OPENAI_API_KEY=sk_xxx
+MASTER_ENCRYPTION_KEY=xxx
+PORT=3001
 ```
-
-Server: http://localhost:3000
-
----
-
-*Last Updated: 2026-05-14*
-*Version: 2.0.0*
-*License: MIT*

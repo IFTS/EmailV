@@ -48,7 +48,7 @@ export function removeSMTPConfig(tenantId: string) {
 }
 
 export async function sendEmail(tenantId: string, options: EmailOptions): Promise<SendResult> {
-  const config = smtpConfigs.get(tenantId);
+  let config = smtpConfigs.get(tenantId);
   
   if (!config) {
     const tenantSettings = await prisma.tenantSetting.findUnique({
@@ -59,15 +59,17 @@ export async function sendEmail(tenantId: string, options: EmailOptions): Promis
       return { success: false, error: 'SMTP not configured' };
     }
     
-    config.host = tenantSettings.spfDomain;
-    config.port = 587;
-    config.secure = false;
-    config.auth = {
-      user: tenantSettings.fromEmail,
-      pass: process.env.SMTP_PASSWORD || ''
+    config = {
+      host: tenantSettings.spfDomain,
+      port: 587,
+      secure: false,
+      auth: {
+        user: tenantSettings.fromEmail,
+        pass: process.env.SMTP_PASSWORD || ''
+      },
+      from: tenantSettings.fromEmail,
+      fromName: tenantSettings.fromName || 'EmailV Pro'
     };
-    config.from = tenantSettings.fromEmail;
-    config.fromName = tenantSettings.fromName;
   }
 
   try {
@@ -76,13 +78,15 @@ export async function sendEmail(tenantId: string, options: EmailOptions): Promis
       port: config.port,
       secure: config.secure,
       auth: config.auth,
-      connectionTimeout: 10000
+      connectionTimeout: 10000,
+      pool: true,
+      maxConnections: 5
     });
 
     const recipients = Array.isArray(options.to) ? options.to : [options.to];
     
     const info = await transporter.sendMail({
-      from: `"${options.fromName || config.fromName || config.from || 'EmailV Pro'}" <${options.from || config.from}>`,
+      from: `"${options.fromName || config.fromName || 'EmailV Pro'}" <${options.from || config.from}>`,
       to: recipients.join(', '),
       cc: options.cc?.join(', '),
       bcc: options.bcc?.join(', '),
@@ -128,7 +132,8 @@ export async function testSMTPConnection(tenantId: string): Promise<{ success: b
       host: config.host,
       port: config.port,
       secure: config.secure,
-      auth: config.auth
+      auth: config.auth,
+      connectionTimeout: 10000
     });
 
     await transporter.verify();
