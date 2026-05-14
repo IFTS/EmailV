@@ -448,7 +448,7 @@
 
     <script>
         let contacts=[],templates=[],mailLists=[],customFields=[],groups=[];
-        document.addEventListener('DOMContentLoaded',()=>{loadData();setupNavigation();updateStats();});
+        document.addEventListener('DOMContentLoaded',()=>{loadData();setupNavigation();updateStats();showSection('dashboard');});
         function loadData(){contacts=JSON.parse(localStorage.getItem('contacts')||'[]');templates=JSON.parse(localStorage.getItem('emailTemplates')||'[]');if(!templates.length){templates=[{id:'tpl1',name:'Confirmation',subject:'Confirm',body:'Click to confirm:'},{id:'tpl2',name:'Welcome',subject:'Welcome!',body:'Thank you.'}];localStorage.setItem('emailTemplates',JSON.stringify(templates));}mailLists=JSON.parse(localStorage.getItem('mailLists')||'[]');customFields=JSON.parse(localStorage.getItem('customFields')||'[]');groups=JSON.parse(localStorage.getItem('groups')||'[]');renderContacts();renderTemplates();renderMailLists();renderCustomFields();renderGroups();}
         function saveData(){localStorage.setItem('contacts',JSON.stringify(contacts));localStorage.setItem('emailTemplates',JSON.stringify(templates));localStorage.setItem('mailLists',JSON.stringify(mailLists));localStorage.setItem('customFields',JSON.stringify(customFields));localStorage.setItem('groups',JSON.stringify(groups));}
         function setupNavigation(){document.querySelectorAll('.nav-item').forEach(item=>{item.addEventListener('click',()=>{showSection(item.dataset.section)});});}
