@@ -7,59 +7,136 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  ADMIN
+  MANAGER
+  USER
+  VIEWER
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PAUSED
+  CANCELLED
+}
+
+enum ContactStatus {
+  ACTIVE
+  UNSUBSCRIBED
+  BOUNCED
+  COMPLAINED
+  CLEANED
+}
+
 model Tenant {
-  id          String    @id @default(cuid())
+  id         String    @id @default(cuid())
   name       String
   domain     String    @unique
+  plan       String   @default("free")
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
   
-  contacts   Contact[]
+  users     User[]
+  contacts  Contact[]
   campaigns EmailCampaign[]
   seoAudits SeoAudit[]
   aiLogs    AiAgentLog[]
+  settings  TenantSetting?
+}
+
+model User {
+  id        String   @id @default(cuid())
+  tenantId  String
+  email     String
+  name     String
+  role     UserRole @default(USER)
+  password  String
+  mfaEnabled Boolean @default(false)
+  lastLogin DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  @@unique([tenantId, email])
+}
+
+model TenantSetting {
+  id                    String   @id @default(cuid())
+  tenantId              String   @unique
+  fromEmail            String   @default("onboarding@resend.dev")
+  fromName             String   @default("EmailV Pro")
+  replyTo              String?
+  trackOpens           Boolean  @default(true)
+  trackClicks         Boolean  @default(true)
+  unsubscribePage     String?
+  oneClickUnsubscribe  Boolean  @default(true)
+  dkimSelector       String?
+  spfDomain         String?
+  customDomain      String?
+  
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model Contact {
-  id            String   @id @default(cuid())
+  id            String       @id @default(cuid())
   tenantId      String
   firstName     String
   lastName     String
   email        String
   phone        String?
   company     String?
+  status      ContactStatus @default(ACTIVE)
   tags         String[]
   metadata    Json?
-  validity    String   @default("unknown")
-  validatedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  source      String?
+  consentAt   DateTime?
+  consentSrc  String?
+  validity   String      @default("unknown")
+  validityDtls Json?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
   
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   
   @@unique([tenantId, email])
   @@index([tenantId])
   @@index([email])
+  @@index([status])
 }
 
 model EmailCampaign {
-  id          String   @id @default(cuid())
-  tenantId    String
-  name       String
-  subject    String
-  body       String
-  status     String   @default("draft")
-  sentCount  Int      @default(0)
-  openCount  Int      @default(0)
-  clickCount Int     @default(0)
+  id           String         @id @default(cuid())
+  tenantId     String
+  name        String
+  subject     String
+  preheader   String?
+  body        String
+  html        String?
+  templateId String?
+  status     CampaignStatus @default(DRAFT)
+  scheduledAt DateTime?
+  sentAt     DateTime?
+  sentCount  Int          @default(0)
+  openCount  Int          @default(0)
+  clickCount Int          @default(0)
+  bounceCount Int         @default(0)
+  spamCount  Int          @default(0)
+  unsubCount Int         @default(0)
   bounces   String[]
-  createdAt DateTime @default(now())
-  sentAt    DateTime?
+  opens     Json?
+  clicks    Json?
+  createdAt  DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
   
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   
   @@index([tenantId])
   @@index([status])
+  @@index([scheduledAt])
 }
 
 model SeoAudit {
@@ -67,36 +144,77 @@ model SeoAudit {
   tenantId    String
   url        String
   score      Int      @default(0)
+  grade      String?
   title      String?
-  metaDesc   String?
-  h1Count   Int      @default(0)
-  h2Count   Int      @default(0)
-  imagesAlt  Int      @default(0)
-  imagesTot  Int      @default(0)
-  lcp       Float?
-  fid       Float?
-  cls       Float?
-  issues    Json?
+  titleLen   Int?
+  metaDesc  String?
+  metaLen   Int?
+  h1Count  Int      @default(0)
+  h2Count  Int      @default(0)
+  h3Count  Int      @default(0)
+  h4Count  Int      @default(0)
+  h5Count  Int      @default(0)
+  h6Count  Int      @default(0)
+  imagesAlt Int      @default(0)
+  imagesTot Int      @default(0)
+  altRatio Float?
+  linksInt  Int      @default(0)
+  linksExt Int      @default(0)
+  keywords  String[]
+  issues   Json?
+  performance Json?
   createdAt DateTime @default(now())
   
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   
   @@index([tenantId])
   @@index([url])
 }
 
 model AiAgentLog {
-  id          String   @id @default(cuid())
-  tenantId    String
-  action      String
-  prompt     String
-  response   String?
-  status     String   @default("pending")
-  tokens     Int      @default(0)
-  createdAt  DateTime @default(now())
+  id         String   @id @default(cuid())
+  tenantId   String
+  action    String
+  prompt    String
+  response  String?
+  model     String?
+  status    String   @default("pending")
+  tokens    Int      @default(0)
+  duration  Int?
+  cost      Float?
+  error     String?
+  createdAt DateTime @default(now())
   
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   
   @@index([tenantId])
   @@index([createdAt])
+}
+
+model Webhook {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name     String
+  url      String
+  events   String[]
+  headers  Json?
+  active   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  
+  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId    String?
+  action    String
+  resource String
+  resourceId String?
+  details   Json?
+  ip       String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  
+  @@index([tenantId, createdAt])
 }
