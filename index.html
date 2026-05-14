@@ -287,7 +287,7 @@
 
             <div class="page-content">
                 <!-- Dashboard -->
-                <section class="section active" id="section-dashboard">
+                <section class="section" id="section-dashboard">
                     <div class="page-header"><h1 class="page-title">Dashboard</h1><p class="page-subtitle">Overview of your contact management system</p></div>
                     <div class="stats-grid">
                         <div class="stat-card"><div class="stat-header"><div class="stat-icon total"><i class="fas fa-users"></i></div><span class="stat-trend up">+12%</span></div><div class="stat-value" id="totalContacts">0</div><div class="stat-label">Total Contacts</div></div>
@@ -449,10 +449,27 @@
     <script>
         let contacts=[],templates=[],mailLists=[],customFields=[],groups=[];
         document.addEventListener('DOMContentLoaded',()=>{loadData();setupNavigation();updateStats();showSection('dashboard');});
-        function loadData(){contacts=JSON.parse(localStorage.getItem('contacts')||'[]');templates=JSON.parse(localStorage.getItem('emailTemplates')||'[]');if(!templates.length){templates=[{id:'tpl1',name:'Confirmation',subject:'Confirm',body:'Click to confirm:'},{id:'tpl2',name:'Welcome',subject:'Welcome!',body:'Thank you.'}];localStorage.setItem('emailTemplates',JSON.stringify(templates));}mailLists=JSON.parse(localStorage.getItem('mailLists')||'[]');customFields=JSON.parse(localStorage.getItem('customFields')||'[]');groups=JSON.parse(localStorage.getItem('groups')||'[]');renderContacts();renderTemplates();renderMailLists();renderCustomFields();renderGroups();}
+        function loadData(){try{contacts=JSON.parse(localStorage.getItem('contacts')||'[]')}catch(e){contacts=[];}try{templates=JSON.parse(localStorage.getItem('emailTemplates')||'[]')}catch(e){templates=[];}if(!templates.length){templates=[{id:'tpl1',name:'Confirmation',subject:'Confirm',body:'Click to confirm:'},{id:'tpl2',name:'Welcome',subject:'Welcome!',body:'Thank you.'}];localStorage.setItem('emailTemplates',JSON.stringify(templates));}try{mailLists=JSON.parse(localStorage.getItem('mailLists')||'[]')}catch(e){mailLists=[];}try{customFields=JSON.parse(localStorage.getItem('customFields')||'[]')}catch(e){customFields=[];}try{groups=JSON.parse(localStorage.getItem('groups')||'[]')}catch(e){groups=[];}renderContacts();renderTemplates();renderMailLists();renderCustomFields();renderGroups();}
         function saveData(){localStorage.setItem('contacts',JSON.stringify(contacts));localStorage.setItem('emailTemplates',JSON.stringify(templates));localStorage.setItem('mailLists',JSON.stringify(mailLists));localStorage.setItem('customFields',JSON.stringify(customFields));localStorage.setItem('groups',JSON.stringify(groups));}
         function setupNavigation(){document.querySelectorAll('.nav-item').forEach(item=>{item.addEventListener('click',()=>{showSection(item.dataset.section)});});}
-        function showSection(section){document.querySelectorAll('.nav-item').forEach(item=>{item.classList.toggle('active',item.dataset.section===section);});document.querySelectorAll('.section').forEach(sec=>{sec.classList.toggle('active',sec.id==='section-'+section);});document.getElementById('sidebar')?.classList.remove('open');}
+        function showSection(section){
+            // Sanitize section name to prevent XSS
+            section = String(section).replace(/[<>"'&]/g, '');
+            document.querySelectorAll('.nav-item').forEach(item=>{item.classList.toggle('active',item.dataset.section===section);});
+            document.querySelectorAll('.section').forEach(sec=>{sec.classList.toggle('active',sec.id==='section-'+section);});
+            document.getElementById('sidebar')?.classList.remove('open');
+        }
+        
+        // XSS Protection - Sanitize user input
+        function sanitize(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
         function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');}
         function updateStats(){document.getElementById('totalContacts').textContent=contacts.length;document.getElementById('validContacts').textContent=contacts.filter(c=>c.validity==='valid').length;document.getElementById('invalidContacts').textContent=contacts.filter(c=>c.validity==='invalid').length;document.getElementById('riskyContacts').textContent=contacts.filter(c=>c.validity==='risky').length;document.getElementById('contactCount').textContent=contacts.length;document.getElementById('listsCount').textContent=mailLists.length;document.getElementById('subscribersCount').textContent=mailLists.reduce((s,l)=>s+(l.subscribers?.length||0),0);document.getElementById('activeCount').textContent=mailLists.reduce((s,l)=>s+(l.subscribers?.filter(s=>s.status==='active').length||0),0);}
         function renderContacts(){const list=document.getElementById('contactList');if(!contacts.length){list.innerHTML='<div class="empty-state"><i class="fas fa-user-plus"></i><h3>No contacts</h3><p>Import or add manually</p><button class="btn btn-primary" onclick="openModal(\'addContact\')"><i class="fas fa-plus"></i> Add</button></div>';return;}list.innerHTML=contacts.map(c=>'<div class="contact-item"><div class="contact-avatar">'+((c.firstName||'').charAt(0)+(c.lastName||'').charAt(0))+'</div><div class="contact-info"><div class="contact-name">'+(c.firstName||'')+' '+(c.lastName||'')+'</div><div class="contact-email">'+(c.email||'-')+'</div></div><div class="contact-meta"><span class="contact-status '+(c.validity||'unknown')+'">'+(c.validity||'Unchecked')+'</span><div class="contact-actions"><button class="action-btn danger" onclick="deleteContact(\''+c.id+'\')"><i class="fas fa-trash"></i></button></div></div></div>').join('');}
