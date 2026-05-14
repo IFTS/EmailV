@@ -8,6 +8,11 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
+// Load routes
+const aiRoutes = require('./ai/contentGenerator');
+const seoRoutes = require('./seo/seoAnalyzer');
+app.use(aiRoutes);
+app.use(seoRoutes);
 app.use(express.json());
 app.use(cors());
 app.use(helmet());
