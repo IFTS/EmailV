@@ -1,40 +1,57 @@
 {
-  "name": "ifts-emailv",
+  "name": "ifts-emailv-enterprise",
   "version": "2.0.0",
-  "description": "Enterprise Contact Management & Mass Email Marketing Platform",
-  "main": "backend/server.js",
+  "description": "Enterprise multi-tenant SaaS marketing platform",
+  "private": true,
   "scripts": {
-    "start": "node backend/server.js",
-    "dev": "node backend/server.js",
-    "worker": "node backend/queueWorker.js",
-    "test": "echo \"Tests passed\" && exit 0"
-  },
-  "keywords": [
-    "email",
-    "verification",
-    "contact-manager",
-    "crm",
-    "marketing",
-    "smtp",
-    "campaign"
-  ],
-  "author": "IFTS",
-  "license": "MIT",
-  "engines": {
-    "node": ">=18.0.0"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "backend": "tsx src/index.ts",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "worker": "tsx src/queue/emailWorker.ts"
   },
   "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "next": "^14.1.0",
+    "@prisma/client": "^5.9.0",
     "express": "^4.18.2",
-    "nodemailer": "^6.9.8",
-    "dotenv": "^16.3.1",
-    "bullmq": "^4.14.0",
-    "ioredis": "^5.3.2",
-    "cheerio": "^1.0.0-rc.12",
-    "uuid": "^9.0.1",
-    "bcryptjs": "^2.4.3",
-    "jsonwebtoken": "^9.0.2",
     "cors": "^2.8.5",
     "helmet": "^7.1.0",
-    "express-rate-limit": "^7.1.5"
+    "express-rate-limit": "^7.1.5",
+    "bullmq": "^4.14.0",
+    "ioredis": "^5.3.2",
+    "resend": "^3.0.0",
+    "openai": "^4.28.0",
+    "axios": "^1.6.7",
+    "cheerio": "^1.0.0-rc.12",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "tailwind-merge": "^2.2.1",
+    "lucide-react": "^0.323.0",
+    "radix-ui": "^1.0.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "prisma": "^5.9.0",
+    "tsx": "^4.7.0",
+    "tailwindcss": "^3.4.1",
+    "postcss": "^8.4.33",
+    "autoprefixer": "^10.4.17",
+    "eslint": "^8.56.0",
+    "eslint-config-next": "^14.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
