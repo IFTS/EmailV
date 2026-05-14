@@ -213,6 +213,15 @@
         ::-webkit-scrollbar-track { background: var(--bg-primary); }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+        
+        /* Spinner Animation */
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Spider Stats */
+        .spider-stats { font-size: 14px; color: var(--accent); font-weight: 600; }
+        
+        /* Add All Button */
+        .btn-add-all { margin-top: 16px; }
     </style>
 </head>
 <body>
@@ -316,9 +325,16 @@
                 <!-- Spider -->
                 <section class="section" id="section-spider">
                     <div class="page-header"><h1 class="page-title">Email Spider</h1><p class="page-subtitle">Extract emails from websites</p></div>
-                    <div class="card"><div class="card-body"><div class="form-group"><label class="form-label">Website URL</label><input type="url" class="form-input" id="spiderUrl" placeholder="https://example.com"></div><button class="btn btn-primary btn-block" onclick="spiderUrl()"><i class="fas fa-spider"></i> Find Emails</button></div></div>
-                    <div class="card"><div class="card-body"><div class="form-group"><label class="form-label">Search by Keywords</label><input type="text" class="form-input" id="searchKeywords" placeholder="CEO, marketing, New York"></div><button class="btn btn-secondary btn-block" onclick="searchByKeywords()"><i class="fas fa-search"></i> Search</button></div></div>
-                    <div id="spiderResults"></div>
+                    <div class="card"><div class="card-body"><div class="form-group"><label class="form-label">Website URL</label><input type="url" class="form-input" id="spiderUrl" placeholder="https://example.com"></div><div class="btn-group" style="display:flex;gap:12px;"><button class="btn btn-primary" id="spiderBtn" onclick="startSpider()"><i class="fas fa-spider"></i> Start Spider</button><button class="btn btn-danger" id="stopSpiderBtn" onclick="stopSpider()" style="display:none;"><i class="fas fa-stop"></i> Stop</button><button class="btn btn-secondary" onclick="clearSpiderResults()"><i class="fas fa-trash"></i> Clear</button></div></div></div>
+                    
+                    <!-- Progress & Live Results -->
+                    <div class="card" id="spiderProgressCard" style="display:none;">
+                        <div class="card-header"><span class="card-title"><i class="fas fa-broadcast-tower"></i> Live Results</span><span class="spider-stats" id="spiderStats">0 emails found</span></div>
+                        <div class="card-body" style="max-height:400px;overflow-y:auto;">
+                            <div class="spinner-container" id="spinnerContainer" style="display:none;text-align:center;padding:20px;"><div class="spinner" style="width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto;"></div><p style="margin-top:12px;color:var(--text-secondary);">Spidering website...</p></div>
+                            <div class="spider-results" id="spiderResults"></div>
+                        </div>
+                    </div>
                 </section>
 
                 <!-- Campaign -->
@@ -388,7 +404,121 @@
         function exportContacts(){const format=document.getElementById('exportFormat').value;let content,filename,type;if(format==='csv'){const headers=['First Name','Last Name','Email','Phone','Company'];const rows=contacts.map(c=>[c.firstName,c.lastName,c.email,c.phone,c.company].map(v=>'"'+(v||'')+'"').join(','));content=[headers.join(','),...rows].join('\n');filename='contacts.csv';type='text/csv';}else if(format==='json'){content=JSON.stringify(contacts,null,2);filename='contacts.json';type='application/json';}else{content=contacts.map(c=>'BEGIN:VCARD\nVERSION:3.0\nFN:'+c.firstName+' '+c.lastName+'\nEMAIL:'+c.email+'\nTEL:'+c.phone+'\nORG:'+c.company+'\nEND:VCARD').join('\n\n');filename='contacts.vcf';type='text/vcard';}const blob=new Blob([content],{type});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);showToast('Exported!','success');}
         function validateEmail(email){if(!email)return'unknown';const emailRegex=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;if(!emailRegex.test(email))return'invalid';const disposable=['tempmail.com','throwaway.email','10minutemail.com','guerrillamail.com','mailinator.com','yopmail.com','getnada.com'];if(disposable.some(d=>email.toLowerCase().includes(d)))return'risky';return'valid';}
         async function startValidation(){if(!contacts.length){showToast('No contacts','error');return;}document.getElementById('progressBox').classList.add('active');for(let i=0;i<contacts.length;i++){contacts[i].validity=validateEmail(contacts[i].email);const percent=Math.round(((i+1)/contacts.length)*100);document.getElementById('progressFill').style.width=percent+'%';document.getElementById('progressText').textContent='Validating... '+(i+1)+'/'+contacts.length;document.getElementById('progressPercent').textContent=percent+'%';await new Promise(r=>setTimeout(r,20));}saveData();updateStats();renderContacts();document.getElementById('progressBox').classList.remove('active');showToast('Validation complete!','success');}
-        async function spiderUrl(){const url=document.getElementById('spiderUrl').value.trim();if(!url){showToast('Enter URL','error');return;}showToast('Spidering...','success');try{const response=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url));const text=await response.text();const emailRegex=/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;const emails=[...new Set(text.match(emailRegex)||[])];document.getElementById('spiderResults').innerHTML=emails.slice(0,50).map(email=>'<div class="contact-item"><div class="contact-avatar">'+email.charAt(0).toUpperCase()+'</div><div class="contact-info"><div class="contact-name">'+email.split('@')[0]+'</div><div class="contact-email">'+email+'</div></div><button class="btn btn-sm btn-secondary" onclick="addSpiderContact(\''+email+'\')"><i class="fas fa-plus"></i> Add</button></div>').join('');showToast('Found '+emails.length+' emails!','success');}catch(err){showToast('Failed','error');}}
+        async function spiderUrl(){
+            const url=document.getElementById('spiderUrl').value.trim();
+            if(!url){showToast('Enter URL','error');return;}
+            
+            // Show progress card
+            document.getElementById('spiderProgressCard').style.display='block';
+            document.getElementById('spiderResults').innerHTML='';
+            document.getElementById('spiderStats').textContent='0 emails found';
+            document.getElementById('spinnerContainer').style.display='block';
+            document.getElementById('spiderBtn').style.display='none';
+            document.getElementById('stopSpiderBtn').style.display='inline-flex';
+            
+            try{
+                const response=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url));
+                const text=await response.text();
+                const emailRegex=/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+                const emails=[...new Set(text.match(emailRegex)||[])];
+                
+                foundEmails = emails.slice(0, 100); // Limit to 100
+                
+                // Update results in real-time
+                document.getElementById('spinnerContainer').style.display='none';
+                document.getElementById('spiderResults').innerHTML=foundEmails.map(email=>'<div class="contact-item"><div class="contact-avatar">'+email.charAt(0).toUpperCase()+'</div><div class="contact-info"><div class="contact-name">'+email.split('@')[0]+'</div><div class="contact-email">'+email+'</div></div><button class="btn btn-sm btn-secondary" onclick="addSpiderContact(\''+email+'\')"><i class="fas fa-plus"></i> Add</button></div>').join('');
+                document.getElementById('spiderStats').textContent=foundEmails.length+' emails found';
+                
+                // Add "Add All" button
+                if(foundEmails.length > 0) {
+                    const addAllBtn = document.createElement('div');
+                    addAllBtn.className = 'btn-add-all';
+                    addAllBtn.innerHTML = '<button class="btn btn-primary btn-block" onclick="addAllSpiderEmails()"><i class="fas fa-plus-circle"></i> Add All ('+foundEmails.length+')</button>';
+                    document.getElementById('spiderResults').appendChild(addAllBtn);
+                }
+                
+                document.getElementById('spiderBtn').style.display='inline-flex';
+                document.getElementById('stopSpiderBtn').style.display='none';
+                showToast('Found '+foundEmails.length+' emails!','success');
+            }catch(err){
+                document.getElementById('spinnerContainer').style.display='none';
+                document.getElementById('spiderBtn').style.display='inline-flex';
+                document.getElementById('stopSpiderBtn').style.display='none';
+                showToast('Failed to fetch URL','error');
+            }
+        }
+        
+        function addAllSpiderEmails() {
+            let added = 0;
+            foundEmails.forEach(email => {
+                if(!contacts.find(c => c.email === email)) {
+                    contacts.push({
+                        id: 'cnt_'+Date.now()+'_'+Math.random(),
+                        email: email,
+                        firstName: email.split('@')[0],
+                        validity: 'unknown',
+                        createdAt: new Date().toISOString()
+                    });
+                    added++;
+                }
+            });
+            saveData();
+            renderContacts();
+            updateStats();
+            showToast('Added '+added+' new contacts!', 'success');
+        }
+        
+        // ====== ENHANCED SPIDER WITH STOP BUTTON ======
+        let spiderRunning = false;
+        let spiderAbort = null;
+        let foundEmails = [];
+        
+        function startSpider() {
+            const url = document.getElementById('spiderUrl').value.trim();
+            if (!url) { showToast('Enter URL', 'error'); return; }
+            
+            spiderRunning = true;
+            foundEmails = [];
+            
+            // Show progress card
+            document.getElementById('spiderProgressCard').style.display = 'block';
+            document.getElementById('spiderResults').innerHTML = '';
+            document.getElementById('spiderStats').textContent = '0 emails found';
+            document.getElementById('spinnerContainer').style.display = 'block';
+            
+            // Toggle buttons
+            document.getElementById('spiderBtn').style.display = 'none';
+            document.getElementById('stopSpiderBtn').style.display = 'inline-flex';
+            
+            spiderUrl();
+        }
+        
+        function stopSpider() {
+            spiderRunning = false;
+            document.getElementById('spiderBtn').style.display = 'inline-flex';
+            document.getElementById('stopSpiderBtn').style.display = 'none';
+            document.getElementById('spinnerContainer').style.display = 'none';
+            showToast('Spider stopped. Found ' + foundEmails.length + ' emails.', 'warning');
+        }
+        
+        function clearSpiderResults() {
+            document.getElementById('spiderResults').innerHTML = '';
+            document.getElementById('spiderProgressCard').style.display = 'none';
+            foundEmails = [];
+        }
+        
+        function addSpiderEmailToList(email) {
+            if (foundEmails.includes(email)) return;
+            foundEmails.push(email);
+            
+            const list = document.getElementById('spiderResults');
+            const div = document.createElement('div');
+            div.className = 'contact-item';
+            div.innerHTML = '<div class="contact-avatar">' + email.charAt(0).toUpperCase() + '</div><div class="contact-info"><div class="contact-name">' + email.split('@')[0] + '</div><div class="contact-email">' + email + '</div></div><button class="btn btn-sm btn-secondary" onclick="addSpiderContact(\'' + email + '\')"><i class="fas fa-plus"></i> Add</button>';
+            list.appendChild(div);
+            
+            document.getElementById('spiderStats').textContent = foundEmails.length + ' emails found';
+        }
         function addSpiderContact(email){contacts.push({id:'cnt_'+Date.now(),email,firstName:email.split('@')[0],validity:'unknown',createdAt:new Date().toISOString()});saveData();renderContacts();updateStats();showToast('Added: '+email,'success');}
         function searchByKeywords(){showToast('Demo mode','success');}
         function sendCampaign(){const subject=document.getElementById('campaignSubject').value,body=document.getElementById('campaignBody').value,recipients=document.getElementById('campaignRecipients').value;if(!subject||!body){showToast('Subject & body required','error');return;}let filtered=contacts;if(recipients==='valid')filtered=contacts.filter(c=>c.validity==='valid');if(!filtered.length){showToast('No recipients!','error');return;}showToast('Sent to '+filtered.length+' recipients!','success');}
