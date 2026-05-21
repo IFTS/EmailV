@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>ContactV Wellness</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    :root{--primary:#2563eb;--bg:#f8fafc;--card:#fff;--text:#1e293b}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+    .app{max-width:480px;margin:0 auto;min-height:100vh}
+    .header{background:var(--primary);color:#fff;padding:16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:100;padding-top:48px}
+    .header h1{font-size:18px}
+    .btn{background:var(--primary);color:#fff;border:none;padding:12px 16px;border-radius:8px;font-size:14px;cursor:pointer;width:100%;margin-top:8px}
+    .tabs{display:flex;background:var(--card);border-bottom:1px solid #e2e8f0}
+    .tab{flex:1;padding:12px;text-align:center;cursor:pointer;border-bottom:2px solid transparent}
+    .tab.active{border-bottom-color:var(--primary);color:var(--primary);font-weight:600}
+    .content{padding:16px}
+    .card{background:var(--card);padding:16px;border-radius:12px;margin-bottom:12px}
+    input,select,textarea{width:100%;padding:12px;border:1px solid #e2e8f0;border-radius:8px;font-size:15px;margin-bottom:12px;background:#fff}
+    .fab{position:fixed;bottom:24px;right:24px;width:56px;height:56px;background:var(--primary);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;box-shadow:0 4px 12px rgba(37,99,235,0.3)}
+    .contact-row{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid #f1f5f9;cursor:pointer}
+    .avatar{width:48px;height:48px;background:var(--primary);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:600}
+    .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .skill-card{padding:16px;border-radius:12px;text-align:center;cursor:pointer;background:var(--card)}
+    .mood-btns{display:flex;justify-content:space-around;margin-bottom:12px}
+    .mood-btn{padding:12px;border-radius:8px;background:#f1f5f9;cursor:pointer}
+    .mood-btn.active{background:#dbeafe}
+    .msg{padding:12px;border-radius:12px;margin-bottom:8px;max-width:80%}
+    .msg-user{background:var(--primary);color:#fff;align-self:flex-end;margin-left:auto}
+    .msg-bot{background:#f0fdf4;align-self:flex-start}
+    .chat-input{position:fixed;bottom:0;left:0;right:0;display:flex;gap:8px;padding:12px;background:#fff;border-top:1px solid #e2e8f0}
+    .chat-messages{min-height:60vh;overflow-y:auto;padding:16px;padding-bottom:80px}
+    .crisis{background:#fefce8;padding:16px;border-radius:12px}
+    .empty{padding:40px;text-align:center;color:#94a3b8}
+  </style>
+</head>
+<body>
+<div class="app" id="app">
+<div class="header">
+<h1>💚 ContactV Wellness</h1>
+<button onclick="showTab('settings')" style="background:transparent;border:none;color:#fff;font-size:18px">⚙️</button>
+</div>
+<div class="tabs">
+<div class="tab active" id="tab-contacts" onclick="showTab('contacts')">Contacts</div>
+<div class="tab" id="tab-wellness" onclick="showTab('wellness')">💚 Wellness</div>
+<div class="tab" id="tab-chat" onclick="showTab('chat')">Chat</div>
+</div>
+<div id="content"></div>
+</div>
+
+<script>
+// DBT Skills Database
+const DBT_SKILLS = {
+  distress: {title: 'Distress Tolerance', emoji: '🌡️', skills: [
+    {name: 'TIPP', desc: 'Temperature change, Intense exercise, Paced breathing'},
+    {name: 'Self-Soothe', desc: 'Use 5 senses to ground yourself'},
+    {name: 'Pros/Cons', desc: 'List pros and cons of acting vs waiting'}
+  ]},
+  emotion: {title: 'Emotion Regulation', emoji: '🎭', skills: [
+    {name: 'Name the Emotion', desc: 'Label exactly what you feel'},
+    {name: 'Check Facts', desc: 'What supports this? What doesn\'t?'},
+    {name: 'Opposite Action', desc: 'Act opposite to urges'}
+  ]},
+  mindfulness: {title: 'Mindfulness', emoji: '🧘', skills: [
+    {name: 'What', desc: 'Notice what\'s happening now'},
+    {name: 'How', desc: 'Observe without controlling'},
+    {name: 'Wise Mind', desc: 'Balance emotion and reason'}
+  ]},
+  interpersonal: {title: 'Interpersonal', emoji: '🤝', skills: [
+    {name: 'DEAR MAN', desc: 'Describe, Express, Assert, Reinforce'},
+    {name: 'GIVE', desc: 'Gentle, Interested, Validate'},
+    {name: 'FAST', desc: 'Fair, no Apologies, Stick to values'}
+  ]}
+};
+
+// Storage
+const DB_KEY = 'ContactVWellness';
+let contacts = [];
+let moods = [];
+let chatMessages = [{role: 'bot', text: 'Hello! I\'m your DBT wellness coach. How are you feeling today?'}];
+let currentTab = 'contacts';
+let editId = null;
+
+// Load/Save
+function loadData() {
+  try {
+    const data = JSON.parse(localStorage.getItem(DB_KEY));
+    if (data) {
+      contacts = data.contacts || [];
+      moods = data.moods || [];
+    }
+  } catch(e) {}
+}
+function saveData() {
+  localStorage.setItem(DB_KEY, JSON.stringify({contacts, moods}));
+}
+loadData();
+
+// Show Tab
+function showTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  render();
+}
+
+// Render Content
+function render() {
+  const c = document.getElementById('content');
+  
+  switch(currentTab) {
+    case 'contacts':
+      c.innerHTML = `
+        <input placeholder="Search contacts..." onkeyup="filterContacts(this.value)" style="margin-bottom:12px">
+        <div id="clist">
+          ${contacts.length ? contacts.map(x => `<div class="contact-row" onclick="editContact('${x.id}')">
+            <div class="avatar">${(x.firstName[0]||'') + (x.lastName[0]||'')}</div>
+            <div><b>${x.firstName} ${x.lastName}</b><p style="color:#64748b;font-size:13px">${x.email}</p></div>
+          </div>`).join('') : '<div class="empty">No contacts yet. Tap + to add.</div>'}
+        </div>
+        <div class="fab" onclick="openContactForm()">+</div>
+      `;
+      break;
+      
+    case 'wellness':
+      c.innerHTML = `
+        <div class="card" style="background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;text-align:center;">
+          <h2>💚 Wellness Coach</h2><p>DBT-powered AI companion</p>
+        </div>
+        <div class="card" onclick="showTab('chat')" style="cursor:pointer">
+          <b>🗣️ Chat with Coach</b>
+          <p style="color:#64748b;font-size:14px">Talk to an AI wellness coach</p>
+        </div>
+        <b style="display:block;margin:12px 0">Core DBT Skills</b>
+        <div class="grid">
+          ${Object.entries(DBT_SKILLS).map(([k,v]) => `<div class="skill-card" onclick="showTab('${k}')">
+            <div style="font-size:24px">${v.emoji}</div>
+            <div>${v.title}</div>
+          </div>`).join('')}
+        </div>
+        <b style="display:block;margin:12px 0">Mood Tracker</b>
+        <div class="card">
+          <p style="color:#64748b;margin-bottom:8px">How are you feeling?</p>
+          <div class="mood-btns">
+            ${['😊','🙂','😐','😔','😢'].map((e,i) => `<span class="mood-btn" id="mood-btn-${i}" onclick="selectMood(${i})">${e}</span>`).join('')}
+          </div>
+          <textarea id="mood-notes" placeholder="What's on your mind?"></textarea>
+          <button class="btn" onclick="logMood()">Log Mood</button>
+        </div>
+        <b style="display:block;margin:12px 0">Recent Moods</b>
+        <div>
+          ${moods.slice(0,5).map(m => `<div class="contact-row">${getMoodEmoji(m.mood)} ${m.mood} - ${new Date(m.time).toLocaleDateString()}</div>`).join('') || '<div class="empty">No moods logged</div>'}
+        </div>
+        <div class="card crisis">
+          <b>🆘 Crisis Resources</b>
+          <p>📞 Call 988 Suicide & Crisis Lifeline</p>
+          <p>Text HOME to 741741</p>
+        </div>
+      `;
+      break;
+      
+    case 'chat':
+      c.innerHTML = `
+        <div class="chat-messages" id="msgs">
+          ${chatMessages.map(m => `<div class="msg ${m.role === 'user' ? 'msg-user' : 'msg-bot'}">${m.text}</div>`).join('')}
+        </div>
+        <div class="chat-input">
+          <input id="chat-input" placeholder="Share what's on your mind..." style="flex:1;margin:0">
+          <button class="btn" onclick="sendChat()" style="width:auto;margin:0">Send</button>
+        </div>
+      `;
+      setTimeout(() => {
+        const msgs = document.getElementById('msgs');
+        if (msgs) msgs.scrollTop = msgs.scrollHeight;
+      }, 100);
+      break;
+      
+    default:
+      if (DBT_SKILLS[currentTab]) {
+        const s = DBT_SKILLS[currentTab];
+        const bg = currentTab === 'distress' ? '#f0fdf4' : currentTab === 'emotion' ? '#eff6ff' : currentTab === 'mindfulness' ? '#fef3c7' : '#fce7f3';
+        c.innerHTML = `
+          <button onclick="showTab('wellness')" style="margin-bottom:12px;padding:8px;background:var(--primary);color:#fff;border:none;border-radius:8px">← Back</button>
+          <div class="card" style="text-align:center;background:${bg}">
+            <h2>${s.emoji} ${s.title}</h2>
+          </div>
+          ${s.skills.map(sk => `<div class="card"><b>${sk.name}</b><p style="color:#64748b;font-size:14px">${sk.desc}</p></div>`).join('')}
+        `;
+      }
+      break;
+      
+    case 'settings':
+      c.innerHTML = `
+        <div class="card">
+          <h3>📤 Export Contacts</h3>
+          <button class="btn" onclick="exportContacts()">Download CSV</button>
+        </div>
+        <div class="card">
+          <h3>📥 Import Contacts</h3>
+          <input type="file" accept=".csv" onchange="importContacts(this.files[0])">
+        </div>
+        <div class="card">
+          <h3>ℹ️ About</h3>
+          <p>ContactV Wellness v1.0</p>
+          <p style="color:#64748b">DBT-powered wellness app</p>
+        </div>
+      `;
+      break;
+  }
+}
+
+// Helper Functions
+function getMoodEmoji(m) {
+  const map = {great:'😊', good:'🙂', okay:'😐', low:'😔', bad:'😢'};
+  return map[m] || '😐';
+}
+
+function selectMood(i) {
+  for (let j = 0; j < 5; j++) {
+    document.getElementById('mood-btn-' + j).classList.remove('active');
+  }
+  document.getElementById('mood-btn-' + i).classList.add('active');
+  selectedMood = i;
+}
+let selectedMood = -1;
+
+function logMood() {
+  if (selectedMood < 0) { alert('Select a mood first'); return; }
+  const names = ['great', 'good', 'okay', 'low', 'bad'];
+  moods.unshift({mood: names[selectedMood], notes: document.getElementById('mood-notes').value, time: new Date().toISOString()});
+  saveData();
+  showTab('wellness');
+}
+
+function filterContacts(q) {
+  const list = document.getElementById('clist');
+  const f = q.toLowerCase();
+  list.innerHTML = contacts.filter(x => x.firstName.toLowerCase().includes(f) || x.email.toLowerCase().includes(f))
+    .map(x => `<div class="contact-row" onclick="editContact('${x.id}')">
+      <div class="avatar">${(x.firstName[0]||'') + (x.lastName[0]||'')}</div>
+      <div><b>${x.firstName} ${x.lastName}</b><p style="color:#64748b;font-size:13px">${x.email}</p></div>
+    </div>`).join('') || '<div class="empty">No contacts</div>';
+}
+
+// Contact Functions
+function openContactForm(existingId = null) {
+  const isEdit = !!existingId;
+  const contact = isEdit ? contacts.find(c => c.id === existingId) : {};
+  document.getElementById('app').innerHTML += `
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200;display:flex;align-items:flex-end">
+      <div style="background:#fff;padding:16px;border-radius:16px 16px 0 0;width:100%;max-width:480px">
+        <h3>${isEdit ? 'Edit' : 'Add'} Contact</h3>
+        <input id="fn" placeholder="First Name *" value="${contact.firstName || ''}">
+        <input id="ln" placeholder="Last Name" value="${contact.lastName || ''}">
+        <input id="em" placeholder="Email *" value="${contact.email || ''}" keyboard-type="email-address">
+        <input id="ph" placeholder="Phone" value="${contact.phone || ''}" keyboard-type="phone-pad">
+        <input id="co" placeholder="Company" value="${contact.company || ''}">
+        <button class="btn" onclick="saveContact('${existingId || ''}')">Save</button>
+        <button style="margin-top:8px;width:100%;padding:12px;background:#ef4444;color:#fff;border:none;border-radius:8px" onclick="deleteContact('${existingId}')" ${isEdit ? '' : 'hidden'}>Delete</button>
+      </div>
+    </div>
+  `;
+}
+
+function saveContact(id) {
+  const fn = document.getElementById('fn').value.trim();
+  const em = document.getElementById('em').value.trim();
+  if (!fn || !em) { alert('First name and email required'); return; }
+  
+  const c = {
+    id: id || Date.now().toString(36),
+    firstName: fn,
+    lastName: document.getElementById('ln').value.trim(),
+    email: em,
+    phone: document.getElementById('ph').value.trim(),
+    company: document.getElementById('co').value.trim()
+  };
+  
+  if (id) {
+    contacts = contacts.map(x => x.id === id ? c : x);
+  } else {
+    contacts.push(c);
+  }
+  saveData();
+  render();
+}
+
+function editContact(id) {
+  openContactForm(id);
+}
+
+function deleteContact(id) {
+  if (!id || !confirm('Delete this contact?')) return;
+  contacts = contacts.filter(c => c.id !== id);
+  saveData();
+  render();
+}
+
+function exportContacts() {
+  const csv = 'Name,Email,Phone,Company\n' + 
+    contacts.map(c => `"${c.firstName} ${c.lastName}","${c.email}","${c.phone}","${c.company}"`).join('\n');
+  const blob = new Blob([csv], {type: 'text/csv'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'contacts.csv';
+  a.click();
+}
+
+function importContacts(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const lines = e.target.result.split('\n');
+    if (lines.length < 2) return;
+    const headers = lines[0].toLowerCase().split(',');
+    const getIdx = (name) => headers.findIndex(h => h.includes(name));
+    
+    for (let i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const cols = lines[i].split(/,(?=(?:[^"]*)"[^"]*$)/);
+      const name = cols[getIdx('name')] || '';
+      contacts.push({
+        id: Date.now().toString(36) + Math.random(),
+        firstName: name.split(' ')[0] || '',
+        lastName: name.split(' ').slice(1).join(' ') || '',
+        email: cols[getIdx('email')] || '',
+        phone: cols[getIdx('phone')] || '',
+        company: cols[getIdx('company')] || ''
+      });
+    }
+    saveData();
+    alert('Imported contacts!');
+    showTab('contacts');
+  };
+  reader.readAsText(file);
+}
+
+// Chat AI
+function generateResponse(msg) {
+  const m = msg.toLowerCase();
+  if (m.includes('suicide') || m.includes('want to die') || m.includes('hurt myself')) {
+    return 'Your life matters. Please call 988 Suicide & Crisis Lifeline now. You can also text HOME to 741741. Would you like to try a grounding technique?';
+  }
+  if (m.includes('anxious') || m.includes('worried') || m.includes('stress') || m.includes('overwhelmed')) {
+    return 'Let\'s try 5-4-3-2-1 grounding: 5 things you can SEE, 4 you can TOUCH, 3 you can HEAR, 2 you can SMELL, and 1 you can TASTE. Stay present with me.';
+  }
+  if (m.includes('sad') || m.includes('depressed') || m.includes('hopeless') || m.includes('empty')) {
+    return 'I hear you. What\'s one tiny thing that might bring a moment of relief today? Even stepping outside counts. Want to try "PLEASE" (treat physical illness)?';
+  }
+  if (m.includes('angry') || m.includes('mad') || m.includes('rage')) {
+    return 'Anger is valid—it tells us something matters. Take a breath. What\'s underneath? Fear? Hurt? We can use TIPP: Temperature, Intense exercise, Paced breathing.';
+  }
+  if (m.includes('lonely') || m.includes('alone') || m.includes('isolated')) {
+    return 'Connection matters. Consider reaching out to someone—even a brief text. You can also call 988 to connect with someone. Want to practice interpersonal skills?';
+  }
+  if (m.includes('thank') || m.includes('grateful') || m.includes('better')) {
+    return 'Noticing positives builds resilience! What\'s another moment—even small—that felt okay today?';
+  }
+  if (m.includes('db-t') || m.includes('dialectical') || m.includes('skill')) {
+    return 'DBT has 4 modules: 1) Distress Tolerance (surviving crises), 2) Emotion Regulation, 3) Mindfulness, 4) Interpersonal Effectiveness. Which resonates?';
+  }
+  const responses = [
+    'I hear you. What do you notice in your body right now?',
+    'That sounds challenging. Remember: difficult times don\'t last, but brave people do.',
+    'Thank you for sharing. Let\'s work through this together.',
+    'Take a breath. What\'s one thing you could do right now?'
+  ];
+  return responses[Math.floor(Math.random() * responses.length)];
+}
+
+function sendChat() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  
+  chatMessages.push({role: 'user', text: msg});
+  input.value = '';
+  render();
+  
+  setTimeout(() => {
+    chatMessages.push({role: 'bot', text: generateResponse(msg)});
+    render();
+    setTimeout(() => {
+      const msgs = document.getElementById('msgs');
+      if (msgs) msgs.scrollTop = msgs.scrollHeight;
+    }, 100);
+  }, 800);
+}
+
+// Init
+render();
+document.getElementById('chat-input')?.addEventListener('keypress', e => {
+  if (e.key === 'Enter') sendChat();
+});
+</script>
+</body>
+</html>
