@@ -176,9 +176,9 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || process.env.NODE_PORT || 3001;
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`EmailV Backend running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Allowed Origin: ${ALLOWED_ORIGIN}`);
