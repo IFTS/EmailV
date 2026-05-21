@@ -22,7 +22,8 @@ router.post('/templates', async (req: Request, res: Response) => {
         body: body || '',
         html: html || body || '',
         status: 'DRAFT',
-        metadata: { category, variables }
+        metadata: {
+         category, variables }
       }
     });
 
@@ -116,7 +117,8 @@ router.put('/templates/:id', async (req: Request, res: Response) => {
         subject: subject || undefined,
         body: body || undefined,
         html: html || undefined,
-        metadata: { category, variables },
+        metadata: {
+         category, variables },
         updatedAt: new Date()
       }
     });

@@ -45,6 +45,7 @@ model Tenant {
   seoAudits SeoAudit[]
   aiLogs    AiAgentLog[]
   settings  TenantSetting?
+  webhooks Webhook[]
 }
 
 model User {

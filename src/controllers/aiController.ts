@@ -129,9 +129,9 @@ router.post('/ai/analyze-performance', async (req: Request, res: Response) => {
       return;
     }
 
-    const totalSent = (campaign.metadata as any)?.sent || 0;
-    const totalOpens = (campaign.metadata as any)?.opens || 0;
-    const totalClicks = (campaign.metadata as any)?.clicks || 0;
+    const totalSent = campaign.metadata?.sent || 0;
+    const totalOpens = campaign.metadata?.opens || 0;
+    const totalClicks = campaign.metadata?.clicks || 0;
 
     const openRate = totalSent > 0 ? (totalOpens / totalSent) * 100 : 0;
     const clickRate = totalSent > 0 ? (totalClicks / totalSent) * 100 : 0;
