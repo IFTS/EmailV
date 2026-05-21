@@ -4,12 +4,36 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { PrismaClient } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
+import crypto from 'crypto';
 
 import contactRouter from './controllers/contactController.js';
 import seoRouter from './controllers/seoController.js';
 import aiRouter from './controllers/aiController.js';
 import emailRouter from './controllers/emailController.js';
 import { setCurrentRequestId, setTenantContext, clearTenantContext } from './services/tenantIsolation.js';
+
+// ===========================================
+// SECURITY CHECK: Validate required keys
+// ===========================================
+function validateSecurityKeys() {
+  // Check MASTER_ENCRYPTION_KEY
+  if (!process.env.MASTER_ENCRYPTION_KEY) {
+    console.error('❌ CRITICAL: MASTER_ENCRYPTION_KEY env variable is missing!');
+    process.exit(1);
+  }
+  
+  // Ensure key meets AES-256 requirements (32 bytes / 256 bits)
+  const key = process.env.MASTER_ENCRYPTION_KEY;
+  if (key.length < 32) {
+    console.error('❌ CRITICAL: MASTER_ENCRYPTION_KEY must be at least 32 characters.');
+    process.exit(1);
+  }
+  
+  console.log('✅ Security keys validated');
+}
+
+// Run security check immediately
+validateSecurityKeys();
 
 const app = express();
 const prisma = new PrismaClient();
@@ -84,6 +108,19 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts.', retryAfter: 900 }
 });
 
+// Strict limiter for email validation (protects API credits)
+const validationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 minutes
+  max: 5,                     // Strict limit per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many email validations. Please try again later.', retryAfter: 900 },
+  keyGenerator: (req) => {
+    // Rate limit by tenant to protect API quotas
+    return req.headers['x-tenant-id'] as string || req.ip;
+  }
+});
+
 app.use('/api/', apiLimiter);
 app.use('/api/auth', authLimiter);
 
@@ -108,6 +145,40 @@ app.get('/api/health', async (req, res) => {
 
 app.get('/api/ping', (req, res) => {
   res.json({ pong: true, timestamp: Date.now() });
+});
+
+// Prometheus metrics endpoint
+let requestCount = 0;
+let errorCount = 0;
+
+app.get('/api/metrics', (req, res) => {
+  // Increment request counter
+  requestCount++;
+  
+  const metrics = [
+    `# HELP emailv_requests_total Total HTTP requests`,
+    `# TYPE emailv_requests_total counter`,
+    `emailv_requests_total ${requestCount}`,
+    ``,
+    `# HELP emailv_errors_total Total HTTP errors`,
+    `# TYPE emailv_errors_total counter`,
+    `emailv_errors_total ${errorCount}`,
+    ``,
+    `# HELP emailv_uptime_seconds Server uptime in seconds`,
+    `# TYPE emailv_uptime_seconds gauge`,
+    `emailv_uptime_seconds ${process.uptime()}`,
+    ``,
+    `# HELP emailv_memory_usage_bytes Memory usage`,
+    `# TYPE emailv_memory_usage_bytes gauge`,
+    `emailv_memory_usage_bytes ${process.memoryUsage().heapUsed}`,
+    ``,
+    `# HELP emailv_cpu_usage_percent CPU usage percent`,
+    `# TYPE emailv_cpu_usage_percent gauge`,
+    `emailv_cpu_usage_percent ${process.cpuUsage().user / 1000000}`
+  ].join('\n');
+  
+  res.set('Content-Type', 'text/plain');
+  res.send(metrics);
 });
 
 app.get('/api/stats', async (req, res) => {
