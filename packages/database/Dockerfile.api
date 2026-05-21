@@ -1,0 +1,16 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+COPY packages/database/package*.json ./packages/database/
+COPY apps/api/package*.json ./apps/api/
+
+RUN npm ci --workspaces
+
+COPY packages/database/prisma ./packages/database/prisma
+COPY packages/database/index.ts ./packages/database/
+
+RUN npm run generate --workspace=packages/database
+
+CMD ["npm run dev --workspace=apps/api"]

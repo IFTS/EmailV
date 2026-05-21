@@ -1,39 +1,20 @@
-name: EmailV
+name: EmailV Monorepo
 
 services:
-  # ============ APP ============
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "3001:3001"
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/emailv
-      - REDIS_URL=redis://redis:6379
-      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY:-change-me-32-characters!}
-      - NODE_ENV=production
-      - ALLOWED_ORIGIN=http://localhost:3000
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    restart: unless-stopped
-    networks:
-      - emailv-net
-
   # ============ DATABASE ============
-  db:
+  database:
     image: postgres:16-alpine
+    container_name: emailv_db
     environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=emailv
+      POSTGRES_DB: emailv
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d emailv"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,10 +22,13 @@ services:
     networks:
       - emailv-net
 
-  # ============ REDIS ============
+  # ============ REDIS CACHE ============
   redis:
     image: redis:7-alpine
+    container_name: emailv_redis
     command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -56,17 +40,54 @@ services:
     networks:
       - emailv-net
 
+  # ============ API LAYER ============
+  api_layer:
+    build:
+      context: ../..
+      dockerfile: packages/database/Dockerfile.api
+    container_name: emailv_api
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD:-postgres}@database:5432/emailv?schema=public
+      - REDIS_URL=redis://redis:6379
+      - MASTER_ENCRYPTION_KEY=${MASTER_ENCRYPTION_KEY:-changeme-32chars!}
+      - NODE_ENV=production
+    depends_on:
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - emailv-net
+
+  # ============ WEB INTERFACE ============
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    container_name: emailv_web
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - api_layer
+    restart: unless-stopped
+    networks:
+      - emailv-net
+
   # ============ NGINX PROXY ============
   nginx:
     image: nginx:alpine
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
     depends_on:
-      - app
+      - api_layer
+      - web
     restart: unless-stopped
     networks:
       - emailv-net
