@@ -1,0 +1,10 @@
+{
+  "name": "@emailv/web",
+  "version": "3.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'Run Next.js dev server'",
+    "build": "echo 'Build Next.js'"
+  },
+  "dependencies": {}
+}

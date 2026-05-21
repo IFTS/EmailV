@@ -1,0 +1,153 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ============ DEPENDABOT ALERTS ============
+  dependency-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install npm audit
+        run: npm install -g npm-audit-html
+
+      - name: Audit dependencies
+        run: |
+          npm audit --json > audit-results.json
+          npm audit --audit-level=moderate || true
+        
+      - name: Upload security results
+        if: always()
+        uses: github/codeql-action/upload-security-results@v2
+        with:
+          category: "/language:npm"
+          security-results: audit-results.json
+
+  # ============ SECRET SCANNING ============
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run GitLeaks
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          verbose: true
+          config-path: .gitleaks.yaml
+        continue-on-error: true
+
+  # ============ CODEQL ANALYSIS ============
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, typescript
+          queries: security-extended
+
+      - name: Build
+        run: npm install && npm run build || npm install
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript"
+
+  # ============ DOCKER SECURITY ============
+  docker-scan:
+    runs-on: ubuntu-latest
+    if: contains(files, 'Dockerfile')
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Dockerfile image
+        run: docker build .
+        
+      - name: Run Trivy scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          
+      - name: Upload results
+        uses: github/codeql-action/upload-security-results@v2
+        with:
+          category: '/language:docker'
+          security-results: trivy-results.sarif
+
+  # ============ DEPENDENCY REVIEW ============
+  dependency-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      
+    steps:
+      - name: 'Checkout Repository'
+        uses: actions/checkout@v4
+
+      - name: 'Dependency Review'
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: critical
+  
+  # ============ SECURE CODE REPORTS ============
+  secure-code-report:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Generate report
+        run: |
+          echo "# Security Report" > security-report.md
+          date >> security-report.md
+          
+          # Check for outdated packages
+          npm outdated --json > outdated.json || true
+          echo "## Outdated Packages" >> security-report.md
+          
+      - name: Save report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: security-report.md

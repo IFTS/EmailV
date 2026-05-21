@@ -49,18 +49,20 @@ model Tenant {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  tenantId  String
-  email     String
-  name     String
-  role     UserRole @default(USER)
-  password  String
-  mfaEnabled Boolean @default(false)
-  lastLogin DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  tenantId     String
+  email        String
+  name        String
+  role        UserRole @default(USER)
+  passwordHash String   // Stored as bcrypt hash (not plainSHA256)
+  mfaEnabled  Boolean @default(false)
+  lastLogin    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  
+  authAttempts AuthAttempt[]
   
   @@unique([tenantId, email])
 }
@@ -218,4 +220,21 @@ model AuditLog {
   createdAt DateTime @default(now())
   
   @@index([tenantId, createdAt])
+}
+
+// Auth attempt tracking for security
+model AuthAttempt {
+  id         String   @id @default(cuid())
+  userId     String
+  tenantId   String
+  ipAddress  String
+  success    Boolean
+  timestamp DateTime @default(now())
+  userAgent  String?
+  
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([tenantId])
+  @@index([timestamp])
 }
