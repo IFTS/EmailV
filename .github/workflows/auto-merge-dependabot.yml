@@ -1,0 +1,253 @@
+name: Auto-Merge Dependabot
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  check_suite:
+    types: [completed]
+  workflow_run:
+    types: [completed]
+    workflows: ["CI", "Test", "Tests"]
+
+# Only for Dependabot PRs - prevent duplicates
+concurrency:
+  group: dependabot-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    # Strict check: must be dependabot
+    if: github.actor == 'dependabot[bot]'
+    timeout-minutes: 60
+    
+    steps:
+      # ============ PRECHECK ============
+      - name: Get PR information
+        id: pr-info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            // Log PR details
+            console.log(`📋 PR #${pr.number}: ${pr.title}`);
+            console.log(`   Author: ${pr.user.login}`);
+            console.log(`   Labels: ${pr.labels.map(l => l.name).join(', ') || 'none'}`);
+            console.log(`   State: ${pr.state}`);
+            console.log(`   Merged: ${pr.merged}`);
+            
+            // Get base branch protection info
+            try {
+              const { data: protection } = await github.rest.repos.getBranchProtection({
+                owner, repo,
+                branch: pr.base.ref
+              });
+              console.log(`   Protected: ${protection.protected}`);
+            } catch (e) {
+              console.log(`   Protected: false`);
+            }
+            
+            // Check if auto-merge is already enabled
+            if (pr.auto_merge) {
+              console.log(`   Auto-merge: already enabled`);
+            }
+            
+            return {
+              number: pr.number,
+              base_branch: pr.base.ref,
+              title: pr.title,
+              state: pr.state,
+              merged: pr.merged,
+              base_sha: pr.base.sha,
+              head_sha: pr.head.sha
+            };
+
+      # ============ WAIT FOR CI ============
+      - name: Wait for CI checks
+        id: wait-ci
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            const maxWait = 60 * 60 * 1000; // 1 hour
+            const checkInterval = 20000; // 20 seconds
+            const startTime = Date.now();
+            
+            let lastStatus = 'pending';
+            let attempt = 0;
+            
+            while (Date.now() - startTime < maxWait) {
+              attempt++;
+              
+              // Get latest commit on PR
+              const { data: commits } = await github.rest.repos.listCommitsOnPullRequest({
+                owner, repo, pull_number: pr.number
+              });
+              
+              if (!commits[0]) {
+                console.log('No commits found');
+                return 'unknown';
+              }
+              
+              const sha = commits[0].sha;
+              const { data: status } = await github.rest.repos.getCombinedStatusForRef({
+                owner, repo, ref: sha
+              });
+              
+              console.log(`[${attempt}] Status: ${status.state} (${status.statuses.length} checks)`);
+              
+              // Log individual check statuses
+              for (const s of status.statuses.slice(0, 3)) {
+                console.log(`  - ${s.context}: ${s.state}`);
+              }
+              
+              if (status.state === 'success') {
+                console.log('✓ All checks passed!');
+                return 'success';
+              }
+              
+              if (status.state === 'failure') {
+                console.log('✗ One or more checks failed');
+                
+                // Find which checks failed
+                const failed = status.statuses.filter(s => s.state === 'failure');
+                console.log(`Failed checks: ${failed.map(s => s.context).join(', ')}`);
+                return 'failure';
+              }
+              
+              // Still pending, wait
+              lastStatus = status.state;
+              await new Promise(r => setTimeout(r, checkInterval));
+            }
+            
+            console.log('⏱️ Timed out waiting for checks');
+            return 'timeout';
+
+      # ============ PROTECTION CHECK ============
+      - name: Check branch protection
+        id: check-protection
+        if: steps.wait-ci.outputs.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            try {
+              const { data: protection } = await github.rest.repos.getBranchProtection({
+                owner, repo, branch: pr.base.ref
+              });
+              
+              // Check requirements
+              const requiredChecks = protection.required_status_checks?.contexts || [];
+              const strict = protection.required_status_checks?.strict;
+              
+              console.log(`Base branch: ${pr.base.ref}`);
+              console.log(`Protected: ${protection.enabled}`);
+              console.log(`Required status checks: ${requiredChecks.length}`);
+              console.log(`Require branches to be up to date: ${strict}`);
+              
+              return {
+                protected: protection.enabled,
+                required_checks: requiredChecks,
+                strict
+              };
+            } catch (e) {
+              console.log('Branch not protected');
+              return { protected: false };
+            }
+
+      # ============ APPROVE PR ============
+      - name: Approve PR
+        id: approve-pr
+        if: |
+          steps.wait-ci.outputs.result == 'success' &&
+          steps.check-protection.outputs.protected == 'false' ||
+          steps.check-protection.outputs.protected == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            // Check if already approved
+            const { data: reviews } = await github.rest.pulls.listReviews({
+              owner, repo, pull_number: pr.number
+            });
+            
+            const alreadyApproved = reviews.some(r => r.user.type === 'Bot' && r.state === 'APPROVED');
+            
+            if (!alreadyApproved) {
+              await github.rest.pulls.createReview({
+                owner, repo, pull_number: pr.number,
+                event: 'APPROVE'
+              });
+              console.log('✓ PR approved');
+            } else {
+              console.log('PR already approved');
+            }
+
+      # ============ ENABLE AUTO-MERGE ============
+      - name: Enable auto-merge
+        id: enable-auto-merge
+        if: steps.wait-ci.outputs.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            try {
+              // First, try to update branch
+              await github.rest.pulls.updateBranch({
+                owner, repo, pull_number: pr.number
+              });
+              console.log('✓ Branch updated');
+            } catch (e) {
+              console.log('Branch update:', e.message);
+            }
+            
+            // Then merge
+            try {
+              const { data: result } = await github.rest.pulls.merge({
+                owner, repo, pull_number: pr.number,
+                merge_method: 'squash',
+                commit_title: pr.title
+              });
+              
+              console.log(`✓ Merged! SHA: ${result.sha}`);
+              console.log(`   Message: ${result.commit.message.slice(0, 100)}`);
+            } catch (e) {
+              if (e.message.includes('Already fused')) {
+                console.log('Already merged ✓');
+              } else {
+                console.log('Merge:', e.message);
+              }
+            }
+
+      # ============ SUCCESS SUMMARY ============
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Auto-Merge Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR:** #${{ steps.pr-info.outputs.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Title:** ${{ steps.pr-info.outputs.title }}" >> $GITHUB_STEP_SUMMARY
+          echo "**CI Status:** ${{ steps.wait-ci.outputs.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch Protection:** ${{ steps.check-protection.outputs.protection-protected }}" >> $GITHUB_STEP_SUMMARY
