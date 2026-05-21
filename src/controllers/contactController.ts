@@ -350,15 +350,15 @@ router.post('/contacts/merge', async (req: Request, res: Response) => {
       return;
     }
     
-    const mergedTags = new Set(keepContact.tags || []);
-    const existingNotes = (keepContact.metadata as any)?.notes || '';
+    let mergedTags = new Set(keepContact.tags || []);
+    let existingNotes = (keepContact.metadata as any)?.notes || '';
     let favorite = (keepContact.metadata as any)?.favorite || false;
 
     for (const contact of contacts) {
       if (contact.tags) contact.tags.forEach((t) => mergedTags.add(t));
       const notes = (contact.metadata as any)?.notes || '';
       if (notes && !existingNotes.includes(notes)) {
-        existingNotes += '\n' + notes;
+        existingNotes = existingNotes + '\n' + notes;
       }
       if ((contact.metadata as any)?.favorite) favorite = true;
     }

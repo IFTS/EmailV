@@ -1,50 +1,47 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { addEmailToQueue } from '../queue/emailWorker.js';
-import { 
-  generateStructuredEmailCampaign, 
-  generateSubjectLines,
-  segmentContacts,
-  analyzeEmailPerformance 
-} from '../services/aiStructuredOutputs.js';
+import OpenAI from 'openai';
 
 const router = Router();
 const prisma = new PrismaClient();
 
+const openai = process.env.OPENAI_API_KEY 
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
+
 router.post('/ai/generate-content', async (req: Request, res: Response) => {
   try {
-    const { type, tone, context, brandVoice } = req.body;
-    
-    if (!type || !context) {
-      res.status(400).json({ error: 'type and context required' });
+    const { type, tone, targetAudience, productInfo, customPrompt } = req.body;
+
+    if (!openai) {
+      res.status(503).json({ error: 'OpenAI not configured' });
       return;
     }
 
-    const startTime = Date.now();
+    const systemPrompts: Record<string, string> = {
+      welcome: `Generate a welcoming welcome email for ${targetAudience}. Keep the tone ${tone}. Product info: ${productInfo}`,
+      promotional: `Generate a compelling promotional email for ${targetAudience}. Keep the tone ${tone}. Product info: ${productInfo}`,
+      newsletter: `Generate an engaging newsletter for ${targetAudience}. Keep the tone ${tone}. Product info: ${productInfo}`
+    };
 
-    const result = await generateStructuredEmailCampaign(context, type, tone || 'professional');
+    const prompt = customPrompt || systemPrompts[type] || systemPrompts.welcome;
 
-    const duration = Date.now() - startTime;
-
-    await prisma.aiAgentLog.create({
-      data: {
-        tenantId: req.body.tenantId || 'system',
-        action: 'generate_content',
-        prompt: context,
-        response: JSON.stringify(result),
-        model: 'gpt-4o-structured',
-        status: 'completed',
-        tokens: 0,
-        duration,
-        cost: duration * 0.001
-      }
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: `Generate a ${type} email, ${tone} tone` }
+      ],
+      max_tokens: 1000
     });
+
+    const content = completion.choices[0]?.message?.content || '';
 
     res.json({
       success: true,
-      content: result,
-      model: 'gpt-4o-structured',
-      duration
+      content,
+      type,
+      tone
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -53,20 +50,25 @@ router.post('/ai/generate-content', async (req: Request, res: Response) => {
 
 router.post('/ai/subject-line', async (req: Request, res: Response) => {
   try {
-    const { content, count = 5 } = req.body;
-    
-    if (!content) {
-      res.status(400).json({ error: 'content required' });
+    const { emailType, productInfo } = req.body;
+
+    if (!openai) {
+      res.status(503).json({ error: 'OpenAI not configured' });
       return;
     }
 
-    const subjects = await generateSubjectLines(content, count);
-
-    res.json({
-      success: true,
-      subjects,
-      count: subjects.length
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: `Generate 5 catchy subject lines for a ${emailType} email about ${productInfo}` },
+        { role: 'user', content: 'Return only the subject lines, one per line, no numbers' }
+      ],
+      max_tokens: 300
     });
+
+    const lines = completion.choices[0]?.message?.content?.split('\n').filter(Boolean) || [];
+
+    res.json({ success: true, subjectLines: lines });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -74,33 +76,36 @@ router.post('/ai/subject-line', async (req: Request, res: Response) => {
 
 router.post('/ai/segment', async (req: Request, res: Response) => {
   try {
-    const { tenantId, goal } = req.body;
-    
-    if (!tenantId || !goal) {
-      res.status(400).json({ error: 'tenantId and goal required' });
+    const { tenantId, criteria } = req.body;
+
+    if (!tenantId) {
+      res.status(400).json({ error: 'tenantId required' });
       return;
     }
 
-    const contacts = await prisma.contact.findMany({
-      where: { tenantId, status: 'ACTIVE' },
-      take: 100,
-      select: { id: true, email: true, firstName: true, lastName: true, company: true, tags: true }
-    });
+    const where: any = { tenantId };
+    
+    if (criteria?.validity) where.validity = criteria.validity;
+    if (criteria?.status) where.status = criteria.status;
+    if (criteria?.hasCompany) where.company = { not: null };
+    
+    if (criteria?.tags?.length) {
+      where.tags = { hasSome: criteria.tags };
+    }
 
-    const contactData = contacts.map(c => ({
-      email: c.email,
-      name: `${c.firstName} ${c.lastName}`.trim(),
-      company: c.company || undefined,
-      tags: c.tags || []
-    }));
+    const contacts = await prisma.contact.findMany({ where, take: 1000 });
+    
+    const segments = {
+      all: contacts.length,
+      byValidity: {
+        valid: contacts.filter(c => c.validity === 'valid').length,
+        invalid: contacts.filter(c => c.validity === 'invalid').length,
+        risky: contacts.filter(c => c.validity === 'risky').length
+      },
+      byCompany: contacts.filter(c => c.company).length
+    };
 
-    const segmentation = await segmentContacts(contactData, goal);
-
-    res.json({
-      success: true,
-      segments: segmentation.segments,
-      totalContacts: contacts.length
-    });
+    res.json({ success: true, segments, count: contacts.length });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -108,109 +113,8 @@ router.post('/ai/segment', async (req: Request, res: Response) => {
 
 router.post('/ai/analyze-performance', async (req: Request, res: Response) => {
   try {
-    const { campaignId, openRate, clickRate } = req.body;
-    
-    if (!campaignId) {
-      res.status(400).json({ error: 'campaignId required' });
-      return;
-    }
+    const { tenantId, campaignId } = req.body;
 
-    const campaign = await prisma.emailCampaign.findUnique({ where: { id: campaignId } });
-    
-    if (!campaign) {
-      res.status(404).json({ error: 'Campaign not found' });
-      return;
-    }
-
-    const analysis = await analyzeEmailPerformance({
-      subject: campaign.subject,
-      body: campaign.body,
-      openRate,
-      clickRate
-    });
-
-    res.json({
-      success: true,
-      analysis
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/ai/create-campaign', async (req: Request, res: Response) => {
-  try {
-    const { tenantId, campaignName, type, tone, context, targetAudience, goal } = req.body;
-    
-    if (!tenantId || !campaignName || !context) {
-      res.status(400).json({ error: 'tenantId, campaignName, and context required' });
-      return;
-    }
-
-    const startTime = Date.now();
-
-    const log = await prisma.aiAgentLog.create({
-      data: {
-        tenantId,
-        action: 'create_campaign',
-        prompt: context,
-        status: 'processing'
-      }
-    });
-
-    const contacts = await prisma.contact.findMany({
-      where: { tenantId, validity: 'valid', status: 'ACTIVE' },
-      take: 100
-    });
-
-    const result = await generateStructuredEmailCampaign(context, type || 'promotional', tone || 'professional');
-
-    const campaign = await prisma.emailCampaign.create({
-      data: {
-        tenantId,
-        name: campaignName,
-        subject: result.subject,
-        preheader: result.preheader,
-        body: result.body,
-        html: result.html,
-        status: 'DRAFT'
-      }
-    });
-
-    const duration = Date.now() - startTime;
-
-    await prisma.aiAgentLog.update({
-      where: { id: log.id },
-      data: {
-        response: JSON.stringify({ campaignId: campaign.id, subject: result.subject }),
-        status: 'completed',
-        tokens: 0,
-        duration,
-        cost: duration * 0.001
-      }
-    });
-
-    res.json({
-      success: true,
-      campaign: {
-        id: campaign.id,
-        name: campaign.name,
-        subject: campaign.subject,
-        status: campaign.status
-      },
-      content: result,
-      contactsProcessed: contacts.length,
-      duration
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-router.post('/ai/send-campaign', async (req: Request, res: Response) => {
-  try {
-    const { tenantId, campaignId, fromEmail, scheduleAt } = req.body;
-    
     if (!tenantId || !campaignId) {
       res.status(400).json({ error: 'tenantId and campaignId required' });
       return;
@@ -225,40 +129,32 @@ router.post('/ai/send-campaign', async (req: Request, res: Response) => {
       return;
     }
 
-    const contacts = await prisma.contact.findMany({
-      where: { tenantId, validity: 'valid', status: 'ACTIVE' },
-      take: 500
-    });
+    const totalSent = (campaign.metadata as any)?.sent || 0;
+    const totalOpens = (campaign.metadata as any)?.opens || 0;
+    const totalClicks = (campaign.metadata as any)?.clicks || 0;
 
-    const sender = fromEmail || 'onboarding@resend.dev';
+    const openRate = totalSent > 0 ? (totalOpens / totalSent) * 100 : 0;
+    const clickRate = totalSent > 0 ? (totalClicks / totalSent) * 100 : 0;
 
-    for (const contact of contacts) {
-      const personalizedHtml = (campaign.html || campaign.body || '')
-        .replace(/{{firstName}}/gi, contact.firstName || '')
-        .replace(/{{lastName}}/gi, contact.lastName || '')
-        .replace(/{{email}}/gi, contact.email || '')
-        .replace(/{{company}}/gi, contact.company || '');
-
-      await addEmailToQueue({
-        tenantId,
-        campaignId,
-        recipientEmail: contact.email,
-        subject: campaign.subject,
-        body: campaign.body || '',
-        html: personalizedHtml,
-        fromEmail: sender
-      });
-    }
-
-    await prisma.emailCampaign.update({
-      where: { id: campaignId },
-      data: { status: 'SENDING' }
-    });
+    let grade = 'F';
+    if (openRate > 40 && clickRate > 10) grade = 'A+';
+    else if (openRate > 30 && clickRate > 8) grade = 'A';
+    else if (openRate > 20 && clickRate > 5) grade = 'B';
+    else if (openRate > 15 && clickRate > 3) grade = 'C';
+    else if (openRate > 10) grade = 'D';
 
     res.json({
       success: true,
-      queued: contacts.length,
-      campaign: campaignId
+      campaign: {
+        id: campaign.id,
+        name: campaign.name,
+        sent: totalSent,
+        opens: totalOpens,
+        clicks: totalClicks,
+        openRate: openRate.toFixed(1),
+        clickRate: clickRate.toFixed(1),
+        grade
+      }
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -269,59 +165,22 @@ router.get('/ai/content-types', (req: Request, res: Response) => {
   res.json({
     success: true,
     types: [
-      { key: 'welcome', label: 'Welcome Email', description: 'Onboarding emails for new subscribers' },
-      { key: 'promotional', label: 'Promotional', description: 'Sales and offers' },
-      { key: 'newsletter', label: 'Newsletter', description: 'Regular updates and content' },
-      { key: 'announcement', label: 'Announcement', description: 'Product/feature announcements' },
-      { key: 'followup', label: 'Follow-up', description: 'Nurture sequences' },
-      { key: 'confirmation', label: 'Confirmation', description: 'Order confirmations' },
-      { key: 'reengagement', label: 'Re-engagement', description: 'Win back inactive users' },
-      { key: 'survey', label: 'Survey', description: 'Feedback requests' }
+      { key: 'welcome', label: 'Welcome Email' },
+      { key: 'promotional', label: 'Promotional' },
+      { key: 'newsletter', label: 'Newsletter' },
+      { key: 'announcement', label: 'Announcement' },
+      { key: 'invitation', label: 'Invitation' },
+      { key: 'survey', label: 'Survey' },
+      { key: 'onboarding', label: 'Onboarding' },
+      { key: 'reengagement', label: 'Re-engagement' }
     ],
     tones: [
       { key: 'professional', label: 'Professional' },
       { key: 'friendly', label: 'Friendly' },
       { key: 'casual', label: 'Casual' },
-      { key: 'excited', label: 'Excited' },
-      { key: 'empathetic', label: 'Empathetic' }
+      { key: 'formal', label: 'Formal' }
     ]
   });
-});
-
-router.get('/ai/logs', async (req: Request, res: Response) => {
-  try {
-    const { tenantId, page = '1', limit = '20' } = req.query;
-    
-    if (!tenantId) {
-      res.status(400).json({ error: 'tenantId required' });
-      return;
-    }
-
-    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
-
-    const [logs, total] = await Promise.all([
-      prisma.aiAgentLog.findMany({
-        where: { tenantId: tenantId as string },
-        take: parseInt(limit as string),
-        skip,
-        orderBy: { createdAt: 'desc' }
-      }),
-      prisma.aiAgentLog.count({ where: { tenantId: tenantId as string } })
-    ]);
-
-    res.json({
-      success: true,
-      logs,
-      pagination: {
-        page: parseInt(page as string),
-        limit: parseInt(limit as string),
-        total,
-        pages: Math.ceil(total / parseInt(limit as string))
-      }
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
 export default router;

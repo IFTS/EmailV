@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { hash, compare } from 'crypto';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, createHash, timingSafeEqual } from 'crypto';
+import { scrypt } from 'crypto';
 import Redis from 'ioredis';
 import { storeCredential, retrieveCredential, hashApiKey } from './credentialVault.js';
 

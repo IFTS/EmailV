@@ -26,7 +26,7 @@ interface WebhookConfig {
 const webhookQueue: WebhookEvent[] = [];
 const MAX_QUEUE = 100;
 
-export async function triggerWebhook(
+export async function sendWebhookTrigger(
   tenantId: string,
   event: WebhookEvent['type'],
   data: Record<string, any>
@@ -232,4 +232,4 @@ router.post('/webhooks/:id/test', async (req: Request, res: Response) => {
 });
 
 export default router;
-export { triggerWebhook };
+export { sendWebhookTrigger as triggerWebhook };
