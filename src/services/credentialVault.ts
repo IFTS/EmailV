@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync, createHash } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import Redis from 'ioredis';
 
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
@@ -7,6 +7,10 @@ const ENCRYPTION_KEY_LENGTH = 32;
 const IV_LENGTH = 16;
 const SALT_LENGTH = 32;
 const TAG_LENGTH = 16;
+const API_KEY_HASH_LENGTH = 32;
+const API_KEY_SCRYPT_N = 16384;
+const API_KEY_SCRYPT_R = 8;
+const API_KEY_SCRYPT_P = 1;
 
 function deriveKey(password: string, salt: Buffer): Buffer {
   return scryptSync(password, salt, ENCRYPTION_KEY_LENGTH);
@@ -113,7 +117,13 @@ export async function listCredentials(
 }
 
 export function hashApiKey(apiKey: string): string {
-  return createHash('sha256').update(apiKey).digest('hex');
+  const salt = randomBytes(SALT_LENGTH);
+  const derivedKey = scryptSync(apiKey, salt, API_KEY_HASH_LENGTH, {
+    N: API_KEY_SCRYPT_N,
+    r: API_KEY_SCRYPT_R,
+    p: API_KEY_SCRYPT_P
+  });
+  return `scrypt$${API_KEY_SCRYPT_N}$${API_KEY_SCRYPT_R}$${API_KEY_SCRYPT_P}$${salt.toString('hex')}$${derivedKey.toString('hex')}`;
 }
 
 export async function storeApiKey(
@@ -137,10 +147,31 @@ export async function verifyApiKey(
   const storedHash = await redis.get(`apikey:${tenantId}:${key}`);
   
   if (!storedHash) return false;
-  
-  const providedHash = hashApiKey(providedApiKey);
-  
-  return storedHash === providedHash;
+
+  const parts = storedHash.split('$');
+  if (parts.length !== 6 || parts[0] !== 'scrypt') {
+    return false;
+  }
+
+  const n = Number(parts[1]);
+  const r = Number(parts[2]);
+  const p = Number(parts[3]);
+  const saltHex = parts[4];
+  const hashHex = parts[5];
+
+  if (!Number.isFinite(n) || !Number.isFinite(r) || !Number.isFinite(p)) {
+    return false;
+  }
+
+  const salt = Buffer.from(saltHex, 'hex');
+  const expectedHash = Buffer.from(hashHex, 'hex');
+  const providedHash = scryptSync(providedApiKey, salt, expectedHash.length, { N: n, r, p });
+
+  if (providedHash.length !== expectedHash.length) {
+    return false;
+  }
+
+  return timingSafeEqual(providedHash, expectedHash);
 }
 
 export async function revokeApiKey(
