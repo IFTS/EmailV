@@ -46,6 +46,67 @@ function calculateGrade(score: number): string {
   return 'F';
 }
 
+function isDisallowedHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+
+  if (host === 'localhost' || host === '::1' || host === '[::1]') {
+    return true;
+  }
+
+  const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4Match) {
+    const octets = ipv4Match.slice(1).map(Number);
+    if (octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) return true;
+
+    const [a, b] = octets;
+    if (
+      a === 10 ||
+      a === 127 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254) ||
+      a === 0
+    ) {
+      return true;
+    }
+  }
+
+  const normalized = host.replace(/^\[|\]$/g, '');
+  if (
+    normalized === '::1' ||
+    normalized.startsWith('fc') ||
+    normalized.startsWith('fd') ||
+    normalized.startsWith('fe80:')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function validateSeoTargetUrl(rawUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return null;
+  }
+
+  if (parsed.username || parsed.password) {
+    return null;
+  }
+
+  if (isDisallowedHost(parsed.hostname)) {
+    return null;
+  }
+
+  return parsed.toString();
+}
+
 function extractKeywords(text: string): string[] {
   const words = text.toLowerCase()
     .replace(/[^a-z0-9\s]/g, '')
@@ -275,7 +336,13 @@ router.post('/seo/analyze', async (req: Request, res: Response) => {
       return;
     }
 
-    const analysis = await analyzeSeo(url);
+    const safeUrl = validateSeoTargetUrl(String(url));
+    if (!safeUrl) {
+      res.status(400).json({ error: 'Invalid or disallowed url' });
+      return;
+    }
+
+    const analysis = await analyzeSeo(safeUrl);
 
     const audit = await prisma.seoAudit.create({
       data: {
