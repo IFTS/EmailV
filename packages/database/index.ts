@@ -1,5 +1,6 @@
 /**
- * Database Package - Prism Client Re-export
+ * Database Package - Prisma Client Re-export
+ * This package provides isolated database access for all apps
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -12,6 +13,5 @@ if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
 }
 
+export { PrismaClient };
 export default prisma;
-// Re-export types for convenience
-export * from '@prisma/client';
