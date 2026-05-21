@@ -249,6 +249,45 @@ router.post('/seo/analyze', async (req: Request, res: Response) => {
     return;
   }
 
+  try {
+    const analysis = await analyzeSeo(safeUrl);
+
+    const audit = await prisma.seoAudit.create({
+      data: {
+        tenantId,
+        url,
+        score: analysis.score,
+        grade: analysis.grade,
+        title: analysis.title,
+        titleLen: analysis.titleLen,
+        metaDesc: analysis.metaDesc,
+        metaLen: analysis.metaLen,
+        h1Count: analysis.h1Count,
+        h2Count: analysis.h2Count,
+        h3Count: analysis.h3Count,
+        imagesAlt: analysis.imagesAlt,
+        imagesTot: analysis.imagesTot,
+        altRatio: analysis.altRatio,
+        linksInt: analysis.linksInt,
+        linksExt: analysis.linksExt,
+        keywords: analysis.keywords,
+        issues: analysis.issues as any,
+        performance: analysis.performance as any
+      }
+    });
+
+    res.json({ success: true, audit });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+>>>>>>> origin/alert-autofix-13
+  }
+
+  const safeUrl = validateSeoTargetUrl(String(url));
+  if (!safeUrl) {
+    res.status(400).json({ error: 'Invalid or disallowed url' });
+    return;
+  }
+
   const analysis = await analyzeSeo(safeUrl);
 
   const audit = await prisma.seoAudit.create({
