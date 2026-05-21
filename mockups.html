@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>App Mockups</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,sans-serif;background:#111;padding:20px}
+.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;max-width:1200px;margin:0 auto}
+.mockup{background:#fff;border-radius:24px;overflow:hidden;aspect-ratio:9/16;position:relative}
+.mockup img,.mockup canvas{width:100%;height:100%;object-fit:cover}
+.caption{color:#888;text-align:center;margin-top:8px;font-size:14px}
+h1{color:#fff;text-align:center;margin-bottom:30px;font-size:28px}
+@media print{.gallery{-webkit-print-color-adjust:exact}}
+</style>
+</head>
+<body>
+<h1>📱 App Screenshots</h1>
+<div class="gallery">
+
+<!-- Mockup 1: Contacts Tab -->
+<div class="mockup">
+<canvas id="c1" width="270" height="480"></canvas>
+</div>
+<div class="caption">Contacts Tab - List View</div>
+
+<!-- Mockup 2: Add Contact Modal -->
+<div class="mockup">
+<canvas id="c2" width="270" height="480"></canvas>
+</div>
+<div class="caption">Add/Edit Contact Modal</div>
+
+<!-- Mockup 3: Wellness Dashboard -->
+<div class="mockup">
+<canvas id="c3" width="270" height="480"></canvas>
+</div>
+<div class="caption">Wellness Dashboard</div>
+
+<!-- Mockup 4: Chat Interface -->
+<div class="mockup">
+<canvas id="c4" width="270" height="480"></canvas>
+</div>
+<div class="caption">DBT AI Chat</div>
+
+<!-- Mockup 5: DBT Skill Detail -->
+<div class="mockup">
+<canvas id="c5" width="270" height="480"></canvas>
+</div>
+<div class="caption">DBT Skill Detail</div>
+
+<!-- Mockup 6: Settings -->
+<div class="mockup">
+<canvas id="c6" width="270" height="480"></canvas>
+</div>
+<div class="caption">Settings & Export</div>
+
+</div>
+
+<script>
+// Color palette
+const C = {
+  primary: '#2563eb',
+  green: '#22c55e',
+  bg: '#f8fafc',
+  text: '#1e293b',
+  muted: '#64748b',
+  border: '#e2e8f0',
+  danger: '#ef4444'
+};
+
+// Draw rounded rect
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.fill();
+}
+
+// Draw screen 1: Contacts
+function drawContacts(canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, 270, 480);
+  
+  // Header
+  ctx.fillStyle = C.primary;
+  ctx.fillRect(0, 0, 270, 90);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 18px -apple-system';
+  ctx.fillText('📇 ContactV Wellness', 60, 25);
+  
+  // Tab bar
+  ctx.fillStyle = C.bg;
+  ctx.fillRect(0, 130, 270, 44);
+  ctx.strokeStyle = C.border; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, 131); ctx.lineTo(270, 131); ctx.stroke();
+  
+  // Search
+  ctx.fillStyle = '#fff';
+  roundRect(ctx, 15, 145, 240, 40, 8);
+  ctx.strokeStyle = C.border;
+  ctx.strokeRect(15, 145, 240, 40);
+  ctx.fillStyle = C.muted;
+  ctx.font = '14px -apple-system';
+  ctx.fillText('🔍 Search contacts...', 25, 172);
+  
+  // Contact items
+  const contacts = [
+    {name: 'John Smith', email: 'john@email.com'},
+    {name: 'Sarah Johnson', email: 'sarah.j@mail.com'},
+    {name: 'Mike Wilson', email: 'mike.w@company.io'}
+  ];
+  
+  contacts.forEach((c, i) => {
+    const y = 200 + i * 70;
+    // Avatar circle
+    ctx.fillStyle = C.primary;
+    ctx.beginPath(); ctx.arc(35, y, 24, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif';
+    ctx.fillText(c.name[0], 27, y+5);
+    ctx.fillStyle = C.text;
+    ctx.font = '15px -apple-system';
+    ctx.fillText(c.name, 70, y-2);
+    ctx.fillStyle = C.muted;
+    ctx.font = '13px -apple-system';
+    ctx.fillText(c.email, 70, y+16);
+  });
+  
+  // FAB
+  ctx.fillStyle = C.primary;
+  ctx.beginPath(); ctx.arc(235, 430, 28, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 24px sans-serif';
+  ctx.fillText('+', 228, 438);
+  
+  canvas.style.transform = 'scale(0.5)';
+}
+
+// Draw screen 2: Add Contact Modal
+function drawAddContact(canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0, 0, 270, 480);
+  
+  ctx.fillStyle = '#fff';
+  roundRect(ctx, 10, 150, 250, 280, 20);
+  
+  ctx.fillStyle = C.text;
+  ctx.font = 'bold 18px -apple-system';
+  ctx.fillText('Add Contact', 90, 180);
+  
+  const fields = ['First Name *', 'Last Name', 'Email *', 'Phone', 'Company'];
+  fields.forEach((f, i) => {
+    const y = 210 + i * 45;
+    ctx.fillStyle = C.muted;
+    ctx.font = '12px -apple-system';
+    ctx.fillText(f, 25, y);
+    ctx.fillStyle = '#fff';
+    roundRect(ctx, 20, y+8, 230, 36, 6);
+    ctx.strokeStyle = C.border;
+    ctx.strokeRect(20, y+8, 230, 36);
+  });
+  
+  ctx.fillStyle = C.primary;
+  roundRect(ctx, 20, 380, 105, 36, 8);
+  roundRect(ctx, 135, 380, 105, 36, 8);
+  ctx.fillStyle = '#fff';
+  ctx.fillText('Cancel', 55, 404);
+  ctx.fillText('Save', 175, 404);
+}
+
+// Draw screen 3: Wellness Dashboard
+function drawWellness(canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, 270, 480);
+  
+  // Header gradient
+  const grd = ctx.createLinearGradient(0, 0, 270, 120);
+  grd.addColorStop(0, '#22c55e');
+  grd.addColorStop(1, '#16a34a');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, 270, 100);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 20px -apple-system';
+  ctx.fillText('💚 Wellness Coach', 25, 35);
+  ctx.font = '15px -apple-system';
+  ctx.fillText('DBT-powered AI companion', 25, 60);
+  ctx.fillText('🗣️', 25, 95);
+  
+  // Skill cards - 2x2 grid
+  const skills = [
+    {emoji: '🌡️', title: 'Distress Tolerance', color: '#f0fdf4'},
+    {emoji: '🎭', title: 'Emotion Reg', color: '#eff6ff'},
+    {emoji: '🧘', title: 'Mindfulness', color: '#fef3c7'},
+    {emoji: '🤝', title: 'Interpersonal', color: '#fce7f3'}
+  ];
+  
+  skills.forEach((s, i) => {
+    const x = 15 + (i % 2) * 125;
+    const y = 120 + Math.floor(i / 2) * 90;
+    ctx.fillStyle = s.color;
+    roundRect(ctx, x, y, 115, 80, 12);
+    ctx.font = '24px sans-serif';
+    ctx.fillText(s.emoji, x + 45, y + 35);
+    ctx.fillStyle = C.text;
+    ctx.font = 'bold 12px -apple-system';
+    ctx.fillText(s.title, x + 15, y + 60);
+  });
+  
+  // Mood tracker section
+  ctx.fillStyle = C.text;
+  ctx.font = 'bold 14px -apple-system';
+  ctx.fillText('Mood Tracker', 15, 330);
+  ctx.fillStyle = C.muted;
+  ctx.font = '13px -apple-system';
+  ctx.fillText('How are you feeling?', 15, 350);
+  
+  const moods = ['😊', '🙂', '😐', '😔', '😢'];
+  moods.forEach((m, i) => {
+    ctx.fillStyle = '#f1f5f9';
+    roundRect(ctx, 15 + i * 46, 365, 40, 36, 8);
+    ctx.font = '18px sans-serif';
+    ctx.fillText(m, 27 + i * 46, 390);
+  });
+}
+
+// Draw screen 4: Chat
+function drawChat(canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, 270, 480);
+  
+  // Header
+  ctx.fillStyle = '#22c55e';
+  ctx.fillRect(0, 0, 270, 80);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 18px -apple-system';
+  ctx.fillText('💚 Wellness Chat', 80, 35);
+  ctx.font = '14px -apple-system';
+  ctx.fillText('AI-powered DBT coach', 80, 58);
+  
+  // Messages
+  const msgs = [
+    {role: 'bot', text: "Hello! I'm your DBT wellness coach. How are you feeling today?", color: '#f0fdf4'},
+    {role: 'user', text: "I've been feeling really anxious lately", color: '#2563eb', text: '#fff'},
+    {role: 'bot', text: "Let's try 5-4-3-2-1: 5 things you can SEE, 4 TOUCH, 3 HEAR...", color: '#f0fdf4'}
+  ];
+  
+  msgs.forEach((m, i) => {
+    const y = 100 + i * 90;
+    if (m.role === 'user') {
+      ctx.fillStyle = m.color;
+      roundRect(ctx, 70, y, 180, 80, 12);
+    } else {
+      ctx.fillStyle = m.color;
+      roundRect(ctx, 15, y, 200, 80, 12);
+    }
+    ctx.fillStyle = m.text;
+    ctx.font = '13px -apple-system';
+    wrapText(ctx, m.text, m.role === 'user' ? 180 : 30, y + 20, 170, 18);
+  });
+  
+  // Input bar
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 420, 270, 60);
+  ctx.strokeStyle = C.border;
+  ctx.beginPath(); ctx.moveTo(0, 421); ctx.lineTo(270, 421); ctx.stroke();
+  ctx.fillStyle = C.bg;
+  roundRect(ctx, 15, 432, 195, 36, 18);
+  ctx.fillStyle = C.primary;
+  roundRect(ctx, 220, 432, 40, 36, 18);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillText('➤', 230, 456);
+}
+
+// Draw screen 5: Skill Detail
+function drawSkill(canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, 270, 480);
+  
+  // Back button
+  ctx.fillStyle = C.primary;
+  roundRect(ctx, 15, 50, 60, 32, 8);
+  ctx.fillStyle = '#fff';
+  ctx.font = '14px -apple-system';
+  ctx.fillText('← Back', 25, 72);
+  
+  // Header card
+  ctx.fillStyle = '#f0fdf4';
+  roundRect(ctx, 15, 100, 240, 100, 16);
+  ctx.font = '48px sans-serif';
+  ctx.fillText('🌡️', 110, 135);
+  ctx.fillStyle = C.text;
+  ctx.font = 'bold 20px -apple-system';
+  ctx.fillText('Distress Tolerance', 75, 175);
+  
+  // Skills
+  const skills = [
+    {name: 'TIPS', desc: 'Temperature change, Intense exercise, Paced breathing, Paired muscle relaxation'},
+    {name: 'Self-Soothe', desc: 'Use your 5 senses to ground: sight, sound, touch, smell, taste'},
+    {name: 'Pros/Cons', desc: 'List pros and cons of acting impulsively vs waiting'},
+    {name: 'IMPROVE', desc: 'Imagery, Meaning, Prayer, Relax, One thing, Vacant, Expression'}
+  ];
+  
+  skills.forEach((s, i) => {
+    const y = 230 + i * 60;
+    ctx.fillStyle = '#fff';
+    roundRect(ctx, 15, y, 240, 50, 12);
+    ctx.strokeStyle = C.border;
+    ctx.strokeRect(15, y, 240, 50);
+    ctx.fillStyle = C.primary;
+    ctx.font = 'bold 14px -apple-system';
+    ctx.fillText(s.name, 25, y + 20);
+    ctx.fillStyle = C.muted;
+    ctx.font = '11px -apple-system';
+    ctx.fillText(s.desc, 25, y + 40, 220);
+  });
+}
+
+// Draw screen 6: Settings
+function drawSettings(canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, 270, 480);
+  
+  // Header
+  ctx.fillStyle = C.primary;
+  ctx.fillRect(0, 0, 270, 70);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 18px -apple-system';
+  ctx.fillText('⚙️ Settings', 90, 45);
+  
+  // Cards
+  const cards = [
+    {title: '📤 Export Contacts', btn: 'Download CSV'},
+    {title: '📥 Import Contacts', input: 'Choose file...'},
+    {title: '🔗 API Configuration', subtitle: 'Connect to server'},
+    {title: 'ℹ️ About', subtitle: 'ContactV Wellness v1.0'}
+  ];
+  
+  cards.forEach((c, i) => {
+    const y = 90 + i * 85;
+    ctx.fillStyle = '#fff';
+    roundRect(ctx, 15, y, 240, 75, 12);
+    ctx.strokeStyle = C.border;
+    ctx.strokeRect(15, y, 240, 75);
+    ctx.fillStyle = C.text;
+    ctx.font = 'bold 15px -apple-system';
+    ctx.fillText(c.title, 25, y + 30);
+    if (c.btn) {
+      ctx.fillStyle = C.primary;
+      roundRect(ctx, 90, y + 42, 140, 28, 8);
+      ctx.fillStyle = '#fff';
+      ctx.font = '13px -apple-system';
+      ctx.fillText(c.btn, 155, y + 60);
+    } else if (c.subtitle) {
+      ctx.fillStyle = C.muted;
+      ctx.font = '13px -apple-system';
+      ctx.fillText(c.subtitle, 25, y + 55);
+    }
+  });
+  
+  // Crisis resource
+  ctx.fillStyle = '#fefce8';
+  roundRect(ctx, 15, 410, 240, 55, 12);
+  ctx.fillStyle = C.text;
+  ctx.font = 'bold 14px -apple-system';
+  ctx.fillText('🆘 Crisis Resources', 25, 435);
+  ctx.font = '13px -apple-system';
+  ctx.fillText('📞 988 • Text HOME to 741741', 25, 455);
+}
+
+// Helper for wrapped text
+function wrapText(ctx, text, x, y, maxW, lineH) {
+  const words = text.split(' ');
+  let line = '';
+  for (const w of words) {
+    const test = line + w + ' ';
+    if (ctx.measureText(test).width > maxW) {
+      ctx.fillText(line, x, y);
+      line = w + ' ';
+      y += lineH;
+    } else {
+      line = test;
+    }
+  }
+  ctx.fillText(line, x, y);
+}
+
+// Draw all screens
+window.onload = function() {
+  setTimeout(() => {
+    drawContacts(document.getElementById('c1'));
+    drawAddContact(document.getElementById('c2'));
+    drawWellness(document.getElementById('c3'));
+    drawChat(document.getElementById('c4'));
+    drawSkill(document.getElementById('c5'));
+    drawSettings(document.getElementById('c6'));
+    console.log('Mockups drawn');
+  }, 500);
+};
+</script>
+</body>
+</html>
