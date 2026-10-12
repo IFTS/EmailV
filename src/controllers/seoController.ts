@@ -5,6 +5,10 @@ import { PrismaClient } from '@prisma/client';
 
 const router = Router();
 const prisma = new PrismaClient();
+const SEO_ALLOWED_HOSTS = (process.env.SEO_ALLOWED_HOSTS || 'example.com')
+  .split(',')
+  .map((h) => h.trim().toLowerCase())
+  .filter(Boolean);
 
 interface SeoAnalysis {
   title: string;
@@ -85,6 +89,13 @@ function isDisallowedHost(hostname: string): boolean {
   return false;
 }
 
+function isAllowedSeoHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return SEO_ALLOWED_HOSTS.some(
+    (allowed) => host === allowed || host.endsWith(`.${allowed}`)
+  );
+}
+
 function validateSeoTargetUrl(rawUrl: string): string | null {
   let parsed: URL;
   try {
@@ -102,6 +113,10 @@ function validateSeoTargetUrl(rawUrl: string): string | null {
   }
 
   if (isDisallowedHost(parsed.hostname)) {
+    return null;
+  }
+
+  if (!isAllowedSeoHost(parsed.hostname)) {
     return null;
   }
 
